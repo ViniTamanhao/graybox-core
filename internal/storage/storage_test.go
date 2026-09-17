@@ -53,6 +53,9 @@ func TestCreateAddGetAndFilter(t *testing.T) {
 	if !bytes.Equal(got.Request.Body, exchange.Request.Body) || !bytes.Equal(got.Response.Body, exchange.Response.Body) {
 		t.Fatal("binary bodies were not preserved")
 	}
+	if got.Request.BodySize != int64(len(exchange.Request.Body)) || got.Request.BodyTruncated || got.Response.BodySize != int64(len(exchange.Response.Body)) {
+		t.Fatalf("body metadata changed: request=%#v response=%#v", got.Request, got.Response)
+	}
 	if !reflect.DeepEqual(got.Request.Headers.Values("X-Repeated"), []string{"first", "second"}) {
 		t.Fatalf("repeated request headers = %#v", got.Request.Headers.Values("X-Repeated"))
 	}
@@ -85,6 +88,79 @@ func TestCreateAddGetAndFilter(t *testing.T) {
 	value, err := store.Metadata(ctx, "target_url")
 	if err != nil || value != "http://example.test" {
 		t.Fatalf("metadata = %q, %v", value, err)
+	}
+}
+
+func TestListMatchesEscapedPathsWithoutDecoding(t *testing.T) {
+	ctx := context.Background()
+	store, err := Create(ctx, filepath.Join(t.TempDir(), "escaped.graybox"), "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Now().UTC()
+	for _, requestURL := range []string{"/users/a%2Fb?view=1", "/users/a/b?view=1"} {
+		_, err := store.Add(ctx, recording.Exchange{Protocol: "http", StartedAt: now, EndedAt: now,
+			Request: recording.Request{Method: http.MethodGet, URL: requestURL}, Response: recording.Response{StatusCode: http.StatusOK}})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, err := store.List(ctx, recording.Filter{Path: "/users/a%2Fb"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].URL != "/users/a%2Fb?view=1" {
+		t.Fatalf("escaped path matches = %#v", items)
+	}
+}
+
+func TestListOrdersByStartedAtThenID(t *testing.T) {
+	ctx := context.Background()
+	store, err := Create(ctx, filepath.Join(t.TempDir(), "ordered.graybox"), "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Now().UTC()
+	for _, started := range []time.Time{now.Add(time.Second), now} {
+		_, err := store.Add(ctx, recording.Exchange{Protocol: "http", StartedAt: started, EndedAt: started,
+			Request: recording.Request{Method: http.MethodGet, URL: "/"}, Response: recording.Response{StatusCode: http.StatusOK}})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, err := store.List(ctx, recording.Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 || items[0].ID != 2 || items[1].ID != 1 {
+		t.Fatalf("ordered IDs = %#v", items)
+	}
+}
+
+func TestOpenReadOnlyRejectsWritesAndClosesCleanly(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "readonly.graybox")
+	store, err := Create(ctx, path, "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = OpenReadOnly(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !store.readOnly {
+		t.Fatal("store is not marked read-only")
+	}
+	if err := store.SetMetadata(ctx, "unexpected", "write"); err == nil {
+		t.Fatal("write through read-only store unexpectedly succeeded")
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close read-only store: %v", err)
 	}
 }
 

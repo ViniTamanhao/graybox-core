@@ -29,7 +29,7 @@ func (a App) runList(ctx context.Context, args []string) (int, error) {
 	usage := func() {
 		fmt.Fprint(a.Stdout, `Usage: graybox ls RECORDING [options]
 
-List exchanges in stable ID order. Method matching is case-insensitive. Path
+List exchanges by request start time, then stable ID. Method matching is case-insensitive. Path
 matching is exact and ignores the query unless --path itself contains a query.
 
 Options:
@@ -64,7 +64,7 @@ Example:
 	if status != 0 && (status < 100 || status > 999) {
 		return ExitUsage, usageError{"--status must be between 100 and 999"}
 	}
-	store, err := storage.Open(ctx, positional[0])
+	store, err := storage.OpenReadOnly(ctx, positional[0])
 	if err != nil {
 		return classifyError(err), fmt.Errorf("cannot open recording %q: %w", positional[0], err)
 	}

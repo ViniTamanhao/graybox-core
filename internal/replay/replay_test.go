@@ -66,3 +66,51 @@ func TestRunnerPreservesRequestAndOmitsUnsafeHeaders(t *testing.T) {
 		t.Fatalf("target URL = %q", results[0].TargetURL)
 	}
 }
+
+func TestRunnerStopsAtRedirectAndDoesNotInjectCompression(t *testing.T) {
+	var redirected int
+	var acceptEncoding string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		acceptEncoding = r.Header.Get("Accept-Encoding")
+		if r.URL.Path == "/next" {
+			redirected++
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.Redirect(w, r, "/next", http.StatusFound)
+	}))
+	defer server.Close()
+	target, _ := url.Parse(server.URL)
+	ex := recording.Exchange{ID: 1, Request: recording.Request{Method: http.MethodGet, URL: "/start"}}
+	results, err := (Runner{Source: fakeSource{ex}}).Run(context.Background(), target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Err != nil || results[0].StatusCode != http.StatusFound {
+		t.Fatalf("results = %#v", results)
+	}
+	if redirected != 0 {
+		t.Fatalf("redirect target was requested %d times", redirected)
+	}
+	if acceptEncoding != "" {
+		t.Fatalf("implicit Accept-Encoding = %q", acceptEncoding)
+	}
+}
+
+func TestRunnerRefusesTruncatedRequestBody(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
+	defer server.Close()
+	target, _ := url.Parse(server.URL)
+	ex := recording.Exchange{ID: 3, Request: recording.Request{Method: http.MethodPost, URL: "/", Body: []byte("part"), BodySize: 10, BodyTruncated: true}}
+	results, err := (Runner{Source: fakeSource{ex}}).Run(context.Background(), target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Err == nil || !strings.Contains(results[0].Err.Error(), "truncated") {
+		t.Fatalf("results = %#v", results)
+	}
+	if called {
+		t.Fatal("request with a truncated body was sent")
+	}
+}

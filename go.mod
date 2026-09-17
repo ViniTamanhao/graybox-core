@@ -1,6 +1,6 @@
 module github.com/opemori/graybox-core
 
-go 1.26.8
+go 1.26.0
 
 require modernc.org/sqlite v1.56.0
 

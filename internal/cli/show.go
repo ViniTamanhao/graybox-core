@@ -14,8 +14,8 @@ func (a App) runShow(ctx context.Context, args []string) (int, error) {
 	usage := func() {
 		fmt.Fprint(a.Stdout, `Usage: graybox show RECORDING ID [options]
 
-Show one complete recorded exchange. Text and JSON bodies are displayed as
-text; binary bodies are described safely. JSON output uses UTF-8 or base64.
+Show one complete recorded exchange, including proxy errors and body capture
+sizes. Truncation is always labeled. JSON output uses UTF-8 or base64.
 
 Options:
   --json             emit structured JSON
@@ -44,7 +44,7 @@ Example:
 	if err != nil {
 		return ExitUsage, err
 	}
-	store, err := storage.Open(ctx, positional[0])
+	store, err := storage.OpenReadOnly(ctx, positional[0])
 	if err != nil {
 		return classifyError(err), fmt.Errorf("cannot open recording %q: %w", positional[0], err)
 	}
@@ -54,7 +54,7 @@ Example:
 		return ExitInvalidRecording, fmt.Errorf("recording %q has no exchange %d", positional[0], id)
 	}
 	if err != nil {
-		return ExitInternal, err
+		return classifyError(err), err
 	}
 	if jsonOutput {
 		if err := writeJSON(a.Stdout, toExchangeJSON(ex)); err != nil {
@@ -67,13 +67,16 @@ Example:
 		status += " " + text
 	}
 	fmt.Fprintf(a.Stdout, "%s %s\n%s\n%s\n\n", ex.Request.Method, requestPath(ex.Request.URL), status, formatDuration(ex.Duration))
+	if ex.ProxyError != "" {
+		fmt.Fprintf(a.Stdout, "Proxy error: %s\n\n", ex.ProxyError)
+	}
 	fmt.Fprintln(a.Stdout, "Request\n\nHeaders:")
 	writeHeaders(a.Stdout, ex.Request.Headers)
 	fmt.Fprintln(a.Stdout, "\nBody:")
-	writeBody(a.Stdout, ex.Request.Body, ex.Request.Headers.Get("Content-Type"))
+	writeBody(a.Stdout, ex.Request.Body, ex.Request.BodySize, ex.Request.BodyTruncated, ex.Request.Headers.Get("Content-Type"))
 	fmt.Fprintln(a.Stdout, "\nResponse\n\nHeaders:")
 	writeHeaders(a.Stdout, ex.Response.Headers)
 	fmt.Fprintln(a.Stdout, "\nBody:")
-	writeBody(a.Stdout, ex.Response.Body, ex.Response.Headers.Get("Content-Type"))
+	writeBody(a.Stdout, ex.Response.Body, ex.Response.BodySize, ex.Response.BodyTruncated, ex.Response.Headers.Get("Content-Type"))
 	return ExitSuccess, nil
 }

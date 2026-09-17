@@ -11,32 +11,38 @@ const SchemaVersion = 1
 
 // Exchange is one observed HTTP request and response.
 type Exchange struct {
-	ID        int64
-	Protocol  string
-	StartedAt time.Time
-	EndedAt   time.Time
-	Duration  time.Duration
-	Request   Request
-	Response  Response
+	ID         int64
+	Protocol   string
+	StartedAt  time.Time
+	EndedAt    time.Time
+	Duration   time.Duration
+	ProxyError string
+	Request    Request
+	Response   Response
 }
 
 // Request contains the replayable parts of an HTTP request.
 type Request struct {
-	Method  string
-	URL     string
-	Headers http.Header
-	Body    []byte
+	Method        string
+	URL           string
+	Headers       http.Header
+	Body          []byte
+	BodySize      int64
+	BodyTruncated bool
 }
 
 // Response contains the observed HTTP response.
 type Response struct {
-	StatusCode int
-	Headers    http.Header
-	Body       []byte
+	StatusCode    int
+	Headers       http.Header
+	Body          []byte
+	BodySize      int64
+	BodyTruncated bool
 }
 
-// Filter restricts exchange listing. Path is an exact URL-path match unless it
-// contains a query string, in which case it matches the complete request URI.
+// Filter restricts exchange listing. Path is an exact escaped URL-path match
+// unless it contains a query string, in which case it matches the complete
+// request URI.
 type Filter struct {
 	Status int
 	Method string

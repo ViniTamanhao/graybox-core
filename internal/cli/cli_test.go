@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"testing"
 	"time"
@@ -23,8 +24,9 @@ func TestListAndShowJSONAreValidAndSharePersistedResults(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	_, err = store.Add(ctx, recording.Exchange{Protocol: "http", StartedAt: now, EndedAt: now.Add(time.Millisecond), Duration: time.Millisecond,
-		Request:  recording.Request{Method: http.MethodPost, URL: "/checkout?try=1", Headers: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"cart":1}`)},
-		Response: recording.Response{StatusCode: http.StatusInternalServerError, Headers: http.Header{"Content-Type": {"application/octet-stream"}}, Body: []byte{0, 255}}})
+		Request:    recording.Request{Method: http.MethodPost, URL: "/checkout?try=1", Headers: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"cart":1}`)},
+		ProxyError: "dial upstream: connection refused",
+		Response:   recording.Response{StatusCode: http.StatusInternalServerError, Headers: http.Header{"Content-Type": {"application/octet-stream"}}, Body: []byte{0, 255}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +53,79 @@ func TestListAndShowJSONAreValidAndSharePersistedResults(t *testing.T) {
 			if !strings.Contains(stdout.String(), `"status":500`) {
 				t.Fatalf("persisted status missing from %q", stdout.String())
 			}
+			if tc.name == "show" && !strings.Contains(stdout.String(), `"proxy_error":"dial upstream: connection refused"`) {
+				t.Fatalf("proxy error missing from %q", stdout.String())
+			}
 		})
+	}
+	var stdout, stderr bytes.Buffer
+	code := (App{Stdout: &stdout, Stderr: &stderr, Version: "test"}).Run(ctx, []string{"show", path, "1"})
+	if code != ExitSuccess || !strings.Contains(stdout.String(), "Proxy error: dial upstream: connection refused") {
+		t.Fatalf("human show exit/stdout/stderr = %d/%q/%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRecordDefaultListenIsLoopback(t *testing.T) {
+	if defaultListenAddress != "127.0.0.1:9000" {
+		t.Fatalf("default listen address = %q", defaultListenAddress)
+	}
+	var stdout, stderr bytes.Buffer
+	code := (App{Stdout: &stdout, Stderr: &stderr}).Run(context.Background(), []string{"record", "--help"})
+	if code != ExitSuccess || !strings.Contains(stdout.String(), "default 127.0.0.1:9000") {
+		t.Fatalf("help exit/stdout/stderr = %d/%q/%q", code, stdout.String(), stderr.String())
+	}
+	if got := displayListen(":9000"); got != "http://0.0.0.0:9000" {
+		t.Fatalf("wildcard display = %q", got)
+	}
+}
+
+func TestReplayProtectsSavedRemoteTarget(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "remote.graybox")
+	store, err := storage.Create(ctx, path, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetMetadata(ctx, "target_url", "https://api.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := (App{Stdout: &stdout, Stderr: &stderr}).Run(ctx, []string{"replay", path})
+	if code != ExitUsage || !strings.Contains(stderr.String(), "is not loopback") || !strings.Contains(stderr.String(), "--target") {
+		t.Fatalf("exit/stdout/stderr = %d/%q/%q", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code = (App{Stdout: &stdout, Stderr: &stderr}).Run(ctx, []string{"replay", path, "--unsafe-original-target"})
+	if code != ExitSuccess || !strings.Contains(stdout.String(), "Replaying 0 exchanges") {
+		t.Fatalf("unsafe override exit/stdout/stderr = %d/%q/%q", code, stdout.String(), stderr.String())
+	}
+	for _, raw := range []string{"http://localhost:8000", "http://service.localhost", "http://127.0.0.1", "http://[::1]"} {
+		target, err := parseTarget(raw)
+		if err != nil || !isLoopbackTarget(target) {
+			t.Errorf("target %q local = false, err %v", raw, err)
+		}
+	}
+}
+
+func TestVersionFallsBackToModuleBuildInfo(t *testing.T) {
+	original := readBuildInfo
+	t.Cleanup(func() { readBuildInfo = original })
+	readBuildInfo = func() (*debug.BuildInfo, bool) {
+		return &debug.BuildInfo{Main: debug.Module{Version: "v0.1.0"}}, true
+	}
+	var stdout, stderr bytes.Buffer
+	code := (App{Stdout: &stdout, Stderr: &stderr}).Run(context.Background(), []string{"version"})
+	if code != ExitSuccess || stdout.String() != "graybox v0.1.0\n" || stderr.Len() != 0 {
+		t.Fatalf("exit/stdout/stderr = %d/%q/%q", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	code = (App{Stdout: &stdout, Stderr: &stderr, Version: "v9.9.9"}).Run(context.Background(), []string{"version"})
+	if code != ExitSuccess || stdout.String() != "graybox v9.9.9\n" {
+		t.Fatalf("ldflags override exit/stdout = %d/%q", code, stdout.String())
 	}
 }
 

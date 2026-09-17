@@ -1,6 +1,21 @@
 package cli
 
-import "fmt"
+import (
+	"fmt"
+	"runtime/debug"
+)
+
+var readBuildInfo = debug.ReadBuildInfo
+
+func (a App) buildVersion() string {
+	if a.Version != "" {
+		return a.Version
+	}
+	if info, ok := readBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return "dev"
+}
 
 func (a App) runVersion(args []string) (int, error) {
 	var jsonOutput, help bool
@@ -29,10 +44,7 @@ Options:
 	if len(positional) != 0 {
 		return ExitUsage, usageError{"version does not accept arguments"}
 	}
-	version := a.Version
-	if version == "" {
-		version = "dev"
-	}
+	version := a.buildVersion()
 	if jsonOutput {
 		if err := writeJSON(a.Stdout, map[string]string{"version": version}); err != nil {
 			return ExitInternal, err

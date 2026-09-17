@@ -17,6 +17,10 @@ This policy is not exhaustive. In particular, Graybox V0 does not inspect or red
 
 Graybox is local-first and never uploads recordings automatically.
 
+The recorder binds to `127.0.0.1:9000` by default. A wildcard address such as `:9000` or `0.0.0.0:9000` can expose the proxy to the local network; use one only when that exposure is intended and protected by appropriate host controls.
+
+Replay can send recorded payloads to a server. Graybox automatically reuses a saved target only for `localhost`, `*.localhost`, and loopback IP addresses. Remote replay requires an explicit `--target` or `--unsafe-original-target`. Review the destination and recording before allowing it. Redirects are reported without being followed, and truncated request bodies are refused rather than sent partially.
+
 ## Reporting a vulnerability
 
 Please report suspected vulnerabilities privately through GitHub's security-advisory feature for this repository. Include the affected version, impact, and a minimal reproduction when possible. Do not include real credentials or private production recordings.

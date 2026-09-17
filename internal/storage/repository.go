@@ -49,10 +49,10 @@ func (s *Store) Add(ctx context.Context, exchange recording.Exchange) (int64, er
 	defer tx.Rollback()
 
 	result, err := tx.ExecContext(ctx, `
-INSERT INTO exchanges(protocol, started_at, completed_at, duration_ns, request_method, request_url, response_status)
-VALUES (?, ?, ?, ?, ?, ?, ?)`, exchange.Protocol,
+INSERT INTO exchanges(protocol, started_at, completed_at, duration_ns, request_method, request_url, response_status, proxy_error)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, exchange.Protocol,
 		exchange.StartedAt.UTC().Format(time.RFC3339Nano), exchange.EndedAt.UTC().Format(time.RFC3339Nano),
-		exchange.Duration.Nanoseconds(), exchange.Request.Method, exchange.Request.URL, exchange.Response.StatusCode)
+		exchange.Duration.Nanoseconds(), exchange.Request.Method, exchange.Request.URL, exchange.Response.StatusCode, exchange.ProxyError)
 	if err != nil {
 		return 0, fmt.Errorf("insert exchange: %w", err)
 	}
@@ -66,16 +66,37 @@ VALUES (?, ?, ?, ?, ?, ?, ?)`, exchange.Protocol,
 	if err := insertHeaders(ctx, tx, "response_headers", id, exchange.Response.Headers); err != nil {
 		return 0, err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO request_bodies(exchange_id, content) VALUES (?, ?)`, id, nonNilBytes(exchange.Request.Body)); err != nil {
+	requestSize, requestTruncated, err := bodyMetadata(exchange.Request.Body, exchange.Request.BodySize, exchange.Request.BodyTruncated)
+	if err != nil {
+		return 0, fmt.Errorf("request body metadata: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO request_bodies(exchange_id, content, original_size, captured_size, truncated) VALUES (?, ?, ?, ?, ?)`,
+		id, nonNilBytes(exchange.Request.Body), requestSize, len(exchange.Request.Body), requestTruncated); err != nil {
 		return 0, fmt.Errorf("insert request body: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO response_bodies(exchange_id, content) VALUES (?, ?)`, id, nonNilBytes(exchange.Response.Body)); err != nil {
+	responseSize, responseTruncated, err := bodyMetadata(exchange.Response.Body, exchange.Response.BodySize, exchange.Response.BodyTruncated)
+	if err != nil {
+		return 0, fmt.Errorf("response body metadata: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO response_bodies(exchange_id, content, original_size, captured_size, truncated) VALUES (?, ?, ?, ?, ?)`,
+		id, nonNilBytes(exchange.Response.Body), responseSize, len(exchange.Response.Body), responseTruncated); err != nil {
 		return 0, fmt.Errorf("insert response body: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("commit exchange: %w", err)
 	}
 	return id, nil
+}
+
+func bodyMetadata(body []byte, originalSize int64, truncated bool) (int64, bool, error) {
+	capturedSize := int64(len(body))
+	if originalSize == 0 && capturedSize > 0 {
+		originalSize = capturedSize
+	}
+	if originalSize < capturedSize {
+		return 0, false, fmt.Errorf("original size %d is smaller than captured size %d", originalSize, capturedSize)
+	}
+	return originalSize, truncated || originalSize > capturedSize, nil
 }
 
 func nonNilBytes(body []byte) []byte {
@@ -108,9 +129,9 @@ func (s *Store) Get(ctx context.Context, id int64) (recording.Exchange, error) {
 	var started, ended string
 	var durationNS int64
 	err := s.db.QueryRowContext(ctx, `
-SELECT id, protocol, started_at, completed_at, duration_ns, request_method, request_url, response_status
+SELECT id, protocol, started_at, completed_at, duration_ns, request_method, request_url, response_status, proxy_error
 FROM exchanges WHERE id = ?`, id).Scan(&ex.ID, &ex.Protocol, &started, &ended, &durationNS,
-		&ex.Request.Method, &ex.Request.URL, &ex.Response.StatusCode)
+		&ex.Request.Method, &ex.Request.URL, &ex.Response.StatusCode, &ex.ProxyError)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ex, ErrNotFound
 	}
@@ -132,13 +153,36 @@ FROM exchanges WHERE id = ?`, id).Scan(&ex.ID, &ex.Protocol, &started, &ended, &
 	if ex.Response.Headers, err = s.readHeaders(ctx, "response_headers", id); err != nil {
 		return ex, err
 	}
-	if err := s.db.QueryRowContext(ctx, `SELECT content FROM request_bodies WHERE exchange_id = ?`, id).Scan(&ex.Request.Body); err != nil {
+	var requestCapturedSize int64
+	if err := s.db.QueryRowContext(ctx, `SELECT content, original_size, captured_size, truncated FROM request_bodies WHERE exchange_id = ?`, id).
+		Scan(&ex.Request.Body, &ex.Request.BodySize, &requestCapturedSize, &ex.Request.BodyTruncated); err != nil {
 		return ex, fmt.Errorf("read request body: %w", err)
 	}
-	if err := s.db.QueryRowContext(ctx, `SELECT content FROM response_bodies WHERE exchange_id = ?`, id).Scan(&ex.Response.Body); err != nil {
+	if err := validateBodyMetadata(ex.Request.Body, ex.Request.BodySize, requestCapturedSize, ex.Request.BodyTruncated); err != nil {
+		return ex, fmt.Errorf("%w: request body metadata: %v", ErrInvalidRecording, err)
+	}
+	var responseCapturedSize int64
+	if err := s.db.QueryRowContext(ctx, `SELECT content, original_size, captured_size, truncated FROM response_bodies WHERE exchange_id = ?`, id).
+		Scan(&ex.Response.Body, &ex.Response.BodySize, &responseCapturedSize, &ex.Response.BodyTruncated); err != nil {
 		return ex, fmt.Errorf("read response body: %w", err)
 	}
+	if err := validateBodyMetadata(ex.Response.Body, ex.Response.BodySize, responseCapturedSize, ex.Response.BodyTruncated); err != nil {
+		return ex, fmt.Errorf("%w: response body metadata: %v", ErrInvalidRecording, err)
+	}
 	return ex, nil
+}
+
+func validateBodyMetadata(body []byte, originalSize, capturedSize int64, truncated bool) error {
+	if capturedSize != int64(len(body)) {
+		return fmt.Errorf("captured size %d does not match BLOB length %d", capturedSize, len(body))
+	}
+	if originalSize < capturedSize {
+		return fmt.Errorf("original size %d is smaller than captured size %d", originalSize, capturedSize)
+	}
+	if originalSize > capturedSize && !truncated {
+		return fmt.Errorf("body omits bytes but is not marked truncated")
+	}
+	return nil
 }
 
 func (s *Store) readHeaders(ctx context.Context, table string, id int64) (http.Header, error) {
@@ -162,7 +206,7 @@ func (s *Store) readHeaders(ctx context.Context, table string, id int64) (http.H
 	return headers, nil
 }
 
-// List returns summaries ordered by stable exchange ID.
+// List returns summaries ordered by request start time and stable exchange ID.
 func (s *Store) List(ctx context.Context, filter recording.Filter) ([]recording.Summary, error) {
 	query := `SELECT id, protocol, started_at, duration_ns, request_method, request_url, response_status FROM exchanges WHERE 1=1`
 	var args []any
@@ -174,7 +218,7 @@ func (s *Store) List(ctx context.Context, filter recording.Filter) ([]recording.
 		query += ` AND UPPER(request_method) = ?`
 		args = append(args, strings.ToUpper(filter.Method))
 	}
-	query += ` ORDER BY id`
+	query += ` ORDER BY started_at, id`
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list exchanges: %w", err)
@@ -209,5 +253,5 @@ func matchesPath(rawURL, wanted string) bool {
 		return rawURL == wanted
 	}
 	parsed, err := url.ParseRequestURI(rawURL)
-	return err == nil && parsed.Path == wanted
+	return err == nil && parsed.EscapedPath() == wanted
 }

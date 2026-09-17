@@ -41,10 +41,7 @@ type Runner struct {
 
 // Run replays all exchanges, or only id when it is non-nil.
 func (r Runner) Run(ctx context.Context, target *url.URL, id *int64) ([]Result, error) {
-	client := r.Client
-	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
-	}
+	client := replayClient(r.Client)
 	if id != nil {
 		ex, err := r.Source.Get(ctx, *id)
 		if err != nil {
@@ -70,6 +67,29 @@ func (r Runner) Run(ctx context.Context, target *url.URL, id *int64) ([]Result, 
 	return results, nil
 }
 
+func replayClient(base *http.Client) *http.Client {
+	client := &http.Client{Timeout: 30 * time.Second}
+	if base != nil {
+		*client = *base
+		if client.Timeout == 0 {
+			client.Timeout = 30 * time.Second
+		}
+	}
+	if transport, ok := client.Transport.(*http.Transport); ok {
+		transport = transport.Clone()
+		transport.DisableCompression = true
+		client.Transport = transport
+	} else if client.Transport == nil {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.DisableCompression = true
+		client.Transport = transport
+	}
+	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	return client
+}
+
 func execute(ctx context.Context, client *http.Client, target *url.URL, ex recording.Exchange) Result {
 	targetURL, err := BuildURL(target, ex.Request.URL)
 	result := Result{ExchangeID: ex.ID, Method: ex.Request.Method, Path: ex.Request.URL}
@@ -78,6 +98,10 @@ func execute(ctx context.Context, client *http.Client, target *url.URL, ex recor
 		return result
 	}
 	result.TargetURL = targetURL.String()
+	if ex.Request.BodyTruncated {
+		result.Err = fmt.Errorf("cannot replay exchange: request body was truncated (%d of %d bytes captured)", len(ex.Request.Body), ex.Request.BodySize)
+		return result
+	}
 	req, err := http.NewRequestWithContext(ctx, ex.Request.Method, result.TargetURL, bytes.NewReader(ex.Request.Body))
 	if err != nil {
 		result.Err = fmt.Errorf("build replay request: %w", err)

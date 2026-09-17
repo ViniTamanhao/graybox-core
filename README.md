@@ -9,15 +9,16 @@ Graybox captures HTTP traffic into portable `.graybox` recordings that can be in
 > **Status:** early V0. The CLI works end to end, while the recording and JSON formats may still evolve before 1.0.
 
 ```console
-$ graybox record --target http://localhost:8080 --listen :9000 --output bug.graybox
+$ graybox record --target http://localhost:8080 --output bug.graybox
 Graybox recording
 
-Listening:   http://localhost:9000
+Listening:   http://127.0.0.1:9000
 Forwarding:  http://localhost:8080
 Recording:   bug.graybox
+Body limit:  10485760 bytes
 
 # In another terminal:
-$ curl http://localhost:9000/hello
+$ curl http://127.0.0.1:9000/hello
 {"message":"hello from Graybox"}
 
 # After stopping the recorder with Ctrl+C:
@@ -34,7 +35,7 @@ Graybox is a focused local development tool—not an APM, packet analyzer, produ
 
 ## Install
 
-Graybox requires Go 1.26 or newer to build from source.
+Graybox requires Go 1.26.0 or newer to build from source.
 
 ```bash
 go install github.com/opemori/graybox-core/cmd/graybox@latest
@@ -66,15 +67,14 @@ In a second terminal, start the explicit reverse proxy:
 ```bash
 go run ./cmd/graybox record \
   --target http://localhost:8080 \
-  --listen :9000 \
   --output example.graybox
 ```
 
 Send traffic through Graybox:
 
 ```bash
-curl http://localhost:9000/hello
-curl -X POST http://localhost:9000/echo \
+curl http://127.0.0.1:9000/hello
+curl -X POST http://127.0.0.1:9000/echo \
   -H 'Content-Type: application/json' \
   -d '{"from":"graybox"}'
 ```
@@ -90,7 +90,7 @@ graybox ls example.graybox --method POST
 graybox ls example.graybox --path /echo
 ```
 
-Results are ordered by exchange ID. Method matching is case-insensitive. A path filter matches the exact URL path while ignoring the query; if the filter contains `?`, it matches the complete request URI exactly.
+Results are ordered by request start time and then by stable exchange ID. Method matching is case-insensitive. A path filter matches the exact escaped URL path while ignoring the query, so `/users/a%2Fb` remains distinct from `/users/a/b`; if the filter contains `?`, it matches the complete request URI exactly.
 
 ## Inspect an exchange
 
@@ -102,7 +102,7 @@ JSON and text bodies are rendered as text, with valid JSON indented. Binary bodi
 
 ## Replay requests
 
-Replay every request sequentially against the target saved in the recording:
+Replay every request sequentially against a loopback target saved in the recording:
 
 ```bash
 graybox replay example.graybox
@@ -117,6 +117,8 @@ graybox replay example.graybox \
 ```
 
 Replay preserves the method, path, query, body, and ordinary request headers. A path prefix in `--target` is prepended. Graybox omits host, content length, connection, transfer-encoding, other hop-by-hop headers, and any header with a redacted value. HTTP response status codes are reported but are not compared with the recording in V0.
+
+Graybox follows no redirects during replay: a redirect is the result for that exchange. For safety, an omitted `--target` uses the recorded target only when its host is `localhost`, a `*.localhost` name, or a loopback IP address. To contact any other original target, provide an explicit `--target` or acknowledge the risk with `--unsafe-original-target`. A request whose recorded body was truncated is not replayed.
 
 ## JSON for scripts and agents
 
@@ -133,17 +135,19 @@ Bodies have an explicit contract:
 ```json
 {
   "content_type": "application/octet-stream",
-  "size": 4,
+  "original_size": 4,
+  "captured_size": 4,
+  "truncated": false,
   "encoding": "base64",
   "data": "AAEC/w=="
 }
 ```
 
-Textual bodies use `"encoding": "utf8"`; binary bodies use `"encoding": "base64"`. Durations are numeric milliseconds and timestamps are RFC 3339 with nanosecond precision. Header values are arrays so repeated fields are preserved.
+Textual bodies use `"encoding": "utf8"`; binary bodies use `"encoding": "base64"`. Body sizes and truncation are always explicit. Durations are numeric milliseconds and timestamps are RFC 3339 with nanosecond precision. Header values are arrays so repeated fields are preserved. A `proxy_error` field distinguishes a Graybox-generated 502 from an upstream 502.
 
 ## Recording format
 
-A `.graybox` file is SQLite with a normalized, versioned schema. V0 stores metadata, exchanges, repeated request/response headers, and raw request/response BLOBs. You can inspect it directly:
+A `.graybox` file is SQLite with a normalized, versioned schema. V0 stores metadata, exchanges, repeated request/response headers, bounded request/response BLOB captures, body-size metadata, and proxy errors. You can inspect it directly:
 
 ```bash
 sqlite3 example.graybox '.tables'
@@ -158,6 +162,8 @@ Recordings can contain passwords, API keys, personal data, private identifiers, 
 
 Treat every `.graybox` file as potentially sensitive. Graybox never uploads recordings automatically. Read [SECURITY.md](SECURITY.md) before sharing one.
 
+`record` listens on `127.0.0.1:9000` by default. Supplying a wildcard or non-loopback `--listen` address exposes the proxy to other machines and should be a deliberate choice.
+
 ## Exit codes
 
 | Code | Meaning |
@@ -165,7 +171,7 @@ Treat every `.graybox` file as potentially sensitive. Graybox never uploads reco
 | 0 | success |
 | 1 | a multi-request replay completed with one or more failures |
 | 2 | invalid/unsupported recording, or missing exchange |
-| 3 | a single replay failed at the network layer |
+| 3 | a single replay could not be executed or completed |
 | 4 | invalid CLI arguments or configuration |
 | 5 | internal or filesystem error |
 
@@ -173,7 +179,7 @@ An HTTP 4xx or 5xx is still a completed replay, not a transport failure.
 
 ## V0 scope and limitations
 
-V0 provides `record`, `ls`, `show`, and sequential `replay` for ordinary HTTP traffic, plus `version` and `help`. It uses an explicit reverse proxy and buffers each individual request and response body in memory while capturing it. It does not buffer an entire session.
+V0 provides `record`, `ls`, `show`, and sequential `replay` for ordinary HTTP/1.x application traffic, plus `version` and `help`. It uses an explicit reverse proxy. Requests and responses stream through it; by default Graybox retains at most 10 MiB from each body and records the observed size and truncation state. Change this bound with `record --body-limit BYTES`.
 
 V0 has no semantic diffing, mock server, configurable sanitizer, query language, daemon, web UI, packet capture, transparent proxy, WebSocket recording, SSE-specific behavior, gRPC decoding, cloud service, tracing system, or embedded AI calls.
 

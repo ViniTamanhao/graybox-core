@@ -6,7 +6,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 
@@ -21,9 +23,10 @@ var (
 
 // Store owns the SQLite connection for one recording.
 type Store struct {
-	db     *sql.DB
-	mu     sync.Mutex
-	closed bool
+	db       *sql.DB
+	readOnly bool
+	mu       sync.Mutex
+	closed   bool
 }
 
 // Create creates a new recording without overwriting an existing file.
@@ -37,7 +40,7 @@ func Create(ctx context.Context, path, grayboxVersion string) (*Store, error) {
 		return nil, fmt.Errorf("create recording: %w", err)
 	}
 
-	s, err := openDB(path)
+	s, err := openDB(path, false)
 	if err != nil {
 		_ = os.Remove(path)
 		return nil, err
@@ -52,10 +55,19 @@ func Create(ctx context.Context, path, grayboxVersion string) (*Store, error) {
 
 // Open opens and validates an existing recording.
 func Open(ctx context.Context, path string) (*Store, error) {
+	return open(ctx, path, false)
+}
+
+// OpenReadOnly opens and validates a recording without write access.
+func OpenReadOnly(ctx context.Context, path string) (*Store, error) {
+	return open(ctx, path, true)
+}
+
+func open(ctx context.Context, path string, readOnly bool) (*Store, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidRecording, err)
 	}
-	s, err := openDB(path)
+	s, err := openDB(path, readOnly)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidRecording, err)
 	}
@@ -66,8 +78,20 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	return s, nil
 }
 
-func openDB(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
+func openDB(path string, readOnly bool) (*Store, error) {
+	dsn := path
+	if readOnly {
+		absolute, err := filepath.Abs(path)
+		if err != nil {
+			return nil, fmt.Errorf("resolve recording path: %w", err)
+		}
+		location := &url.URL{Scheme: "file", Path: absolute}
+		query := location.Query()
+		query.Set("mode", "ro")
+		location.RawQuery = query.Encode()
+		dsn = location.String()
+	}
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite database: %w", err)
 	}
@@ -78,7 +102,7 @@ func openDB(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("configure sqlite database: %w", err)
 	}
-	return &Store{db: db}, nil
+	return &Store{db: db, readOnly: readOnly}, nil
 }
 
 func (s *Store) initialize(ctx context.Context, grayboxVersion string) error {
@@ -129,6 +153,19 @@ WHERE type = 'table' AND name IN ('metadata', 'exchanges', 'request_headers', 'r
 	if tables != 6 {
 		return fmt.Errorf("%w: recording schema is incomplete", ErrInvalidRecording)
 	}
+	for _, query := range []string{
+		`SELECT proxy_error FROM exchanges LIMIT 0`,
+		`SELECT original_size, captured_size, truncated FROM request_bodies LIMIT 0`,
+		`SELECT original_size, captured_size, truncated FROM response_bodies LIMIT 0`,
+	} {
+		rows, err := s.db.QueryContext(ctx, query)
+		if err != nil {
+			return fmt.Errorf("%w: recording schema is incomplete: %v", ErrInvalidRecording, err)
+		}
+		if err := rows.Close(); err != nil {
+			return fmt.Errorf("%w: inspect recording schema: %v", ErrInvalidRecording, err)
+		}
+	}
 	return nil
 }
 
@@ -143,9 +180,11 @@ func (s *Store) Close() error {
 		return nil
 	}
 	s.closed = true
-	if _, err := s.db.Exec(`PRAGMA optimize`); err != nil {
-		_ = s.db.Close()
-		return fmt.Errorf("optimize recording: %w", err)
+	if !s.readOnly {
+		if _, err := s.db.Exec(`PRAGMA optimize`); err != nil {
+			_ = s.db.Close()
+			return fmt.Errorf("optimize recording: %w", err)
+		}
 	}
 	if err := s.db.Close(); err != nil {
 		return fmt.Errorf("close recording: %w", err)
@@ -166,7 +205,8 @@ CREATE TABLE exchanges (
     duration_ns     INTEGER NOT NULL CHECK (duration_ns >= 0),
     request_method  TEXT NOT NULL,
     request_url     TEXT NOT NULL,
-    response_status INTEGER NOT NULL
+    response_status INTEGER NOT NULL,
+    proxy_error     TEXT NOT NULL
 );
 CREATE TABLE request_headers (
     exchange_id INTEGER NOT NULL REFERENCES exchanges(id) ON DELETE CASCADE,
@@ -184,11 +224,23 @@ CREATE TABLE response_headers (
 );
 CREATE TABLE request_bodies (
     exchange_id INTEGER PRIMARY KEY REFERENCES exchanges(id) ON DELETE CASCADE,
-    content     BLOB NOT NULL
+    content       BLOB NOT NULL,
+    original_size INTEGER NOT NULL CHECK (original_size >= 0),
+    captured_size INTEGER NOT NULL CHECK (captured_size >= 0),
+    truncated     INTEGER NOT NULL CHECK (truncated IN (0, 1)),
+    CHECK (captured_size = length(content)),
+    CHECK (captured_size <= original_size),
+    CHECK (truncated = 1 OR captured_size = original_size)
 );
 CREATE TABLE response_bodies (
     exchange_id INTEGER PRIMARY KEY REFERENCES exchanges(id) ON DELETE CASCADE,
-    content     BLOB NOT NULL
+    content       BLOB NOT NULL,
+    original_size INTEGER NOT NULL CHECK (original_size >= 0),
+    captured_size INTEGER NOT NULL CHECK (captured_size >= 0),
+    truncated     INTEGER NOT NULL CHECK (truncated IN (0, 1)),
+    CHECK (captured_size = length(content)),
+    CHECK (captured_size <= original_size),
+    CHECK (truncated = 1 OR captured_size = original_size)
 );
 CREATE INDEX exchanges_started_at_idx ON exchanges(started_at);
 CREATE INDEX exchanges_method_idx ON exchanges(request_method);

@@ -16,8 +16,11 @@ import (
 	"github.com/opemori/graybox-core/internal/storage"
 )
 
+const defaultListenAddress = "127.0.0.1:9000"
+
 func (a App) runRecord(ctx context.Context, args []string) (int, error) {
 	var listen, targetValue, output string
+	var bodyLimit int64
 	var jsonOutput, help bool
 	usage := func() {
 		fmt.Fprint(a.Stdout, `Usage: graybox record --target URL [options]
@@ -25,20 +28,22 @@ func (a App) runRecord(ctx context.Context, args []string) (int, error) {
 Proxy HTTP traffic to an upstream target and record it in a .graybox file.
 
 Options:
-  --listen ADDRESS   listen address (default :9000)
+  --listen ADDRESS   listen address (default 127.0.0.1:9000)
   --target URL       upstream HTTP or HTTPS URL (required)
   --output FILE      output recording (default session.graybox)
+  --body-limit BYTES maximum bytes captured per request or response body (default 10485760)
   --json             emit machine-readable startup information
   -h, --help         show this help
 
 Example:
-  graybox record --listen :9000 --target http://localhost:8080 --output bug.graybox
+  graybox record --listen 127.0.0.1:9000 --target http://localhost:8080 --output bug.graybox
 `)
 	}
 	fs := a.newFlagSet("record", usage)
-	fs.StringVar(&listen, "listen", ":9000", "")
+	fs.StringVar(&listen, "listen", defaultListenAddress, "")
 	fs.StringVar(&targetValue, "target", "", "")
 	fs.StringVar(&output, "output", "session.graybox", "")
+	fs.Int64Var(&bodyLimit, "body-limit", capture.DefaultBodyCaptureLimit, "")
 	fs.BoolVar(&jsonOutput, "json", false, "")
 	fs.BoolVar(&help, "help", false, "")
 	fs.BoolVar(&help, "h", false, "")
@@ -53,6 +58,9 @@ Example:
 	if len(positional) != 0 {
 		return ExitUsage, usageError{"record does not accept positional arguments"}
 	}
+	if bodyLimit <= 0 {
+		return ExitUsage, usageError{"--body-limit must be a positive number of bytes"}
+	}
 	target, err := parseTarget(targetValue)
 	if err != nil {
 		return ExitUsage, err
@@ -62,7 +70,7 @@ Example:
 		return ExitInternal, fmt.Errorf("listen on %q: %w", listen, err)
 	}
 	defer listener.Close()
-	store, err := storage.Create(ctx, output, a.Version)
+	store, err := storage.Create(ctx, output, a.buildVersion())
 	if err != nil {
 		return ExitInternal, fmt.Errorf("cannot create recording %q: %w", output, err)
 	}
@@ -70,18 +78,21 @@ Example:
 	if err := store.SetMetadata(ctx, "target_url", target.String()); err != nil {
 		return ExitInternal, err
 	}
+	if err := store.SetMetadata(ctx, "body_capture_limit", fmt.Sprint(bodyLimit)); err != nil {
+		return ExitInternal, err
+	}
 
 	if jsonOutput {
-		err = writeJSON(a.Stdout, map[string]any{"listen": displayListen(listen), "target": target.String(), "recording": output})
+		err = writeJSON(a.Stdout, map[string]any{"listen": displayListen(listen), "target": target.String(), "recording": output, "body_capture_limit": bodyLimit})
 	} else {
-		_, err = fmt.Fprintf(a.Stdout, "Graybox recording\n\nListening:   %s\nForwarding:  %s\nRecording:   %s\n", displayListen(listen), target, output)
+		_, err = fmt.Fprintf(a.Stdout, "Graybox recording\n\nListening:   %s\nForwarding:  %s\nRecording:   %s\nBody limit:  %d bytes\n", displayListen(listen), target, output, bodyLimit)
 	}
 	if err != nil {
 		return ExitInternal, fmt.Errorf("write output: %w", err)
 	}
 
 	var errorMu sync.Mutex
-	handler := capture.NewProxy(target, store, func(err error) {
+	handler := capture.NewProxyWithBodyLimit(target, store, bodyLimit, func(err error) {
 		errorMu.Lock()
 		defer errorMu.Unlock()
 		fmt.Fprintf(a.Stderr, "graybox: %v\n", err)
@@ -135,7 +146,7 @@ func parseTarget(value string) (*url.URL, error) {
 
 func displayListen(listen string) string {
 	if strings.HasPrefix(listen, ":") {
-		return "http://localhost" + listen
+		return "http://0.0.0.0" + listen
 	}
 	return "http://" + listen
 }

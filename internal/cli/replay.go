@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/opemori/graybox-core/internal/replay"
@@ -24,16 +27,18 @@ type replayItemJSON struct {
 func (a App) runReplay(ctx context.Context, args []string) (int, error) {
 	var targetValue string
 	var idValue int64
-	var jsonOutput, help bool
+	var jsonOutput, unsafeOriginalTarget, help bool
 	usage := func() {
 		fmt.Fprint(a.Stdout, `Usage: graybox replay RECORDING [options]
 
 Replay recorded requests sequentially. If --target is omitted, Graybox uses
-the upstream target saved when the recording was created.
+the saved upstream target only when it is a loopback address.
 
 Options:
   --id ID            replay only one exchange
   --target URL       replace the original target
+  --unsafe-original-target
+                     allow an omitted --target to use a saved remote target
   --json             emit structured JSON
   -h, --help         show this help
 
@@ -45,10 +50,11 @@ Examples:
 	fs := a.newFlagSet("replay", usage)
 	fs.Int64Var(&idValue, "id", 0, "")
 	fs.StringVar(&targetValue, "target", "", "")
+	fs.BoolVar(&unsafeOriginalTarget, "unsafe-original-target", false, "")
 	fs.BoolVar(&jsonOutput, "json", false, "")
 	fs.BoolVar(&help, "help", false, "")
 	fs.BoolVar(&help, "h", false, "")
-	positional, err := parseInterspersed(fs, args, map[string]bool{"json": true, "help": true, "h": true})
+	positional, err := parseInterspersed(fs, args, map[string]bool{"json": true, "unsafe-original-target": true, "help": true, "h": true})
 	if err != nil {
 		return ExitUsage, usageError{err.Error()}
 	}
@@ -62,12 +68,13 @@ Examples:
 	if idValue < 0 {
 		return ExitUsage, usageError{"--id must be a positive integer"}
 	}
-	store, err := storage.Open(ctx, positional[0])
+	store, err := storage.OpenReadOnly(ctx, positional[0])
 	if err != nil {
 		return classifyError(err), fmt.Errorf("cannot open recording %q: %w", positional[0], err)
 	}
 	defer store.Close()
-	if targetValue == "" {
+	usingOriginal := targetValue == ""
+	if usingOriginal {
 		targetValue, err = store.Metadata(ctx, "target_url")
 		if err != nil {
 			return ExitUsage, usageError{"recording has no original target; provide --target"}
@@ -76,6 +83,9 @@ Examples:
 	target, err := parseTarget(targetValue)
 	if err != nil {
 		return ExitUsage, err
+	}
+	if usingOriginal && !unsafeOriginalTarget && !isLoopbackTarget(target) {
+		return ExitUsage, usageError{fmt.Sprintf("recording target %q is not loopback; provide --target or explicitly allow --unsafe-original-target", target)}
 	}
 	var selectedID *int64
 	if idValue > 0 {
@@ -86,7 +96,7 @@ Examples:
 		return ExitInvalidRecording, fmt.Errorf("recording %q has no exchange %d", positional[0], idValue)
 	}
 	if err != nil {
-		return ExitInternal, err
+		return classifyError(err), err
 	}
 	failed := 0
 	if jsonOutput {
@@ -129,4 +139,13 @@ Examples:
 		return ExitReplayFailed, nil
 	}
 	return ExitSuccess, nil
+}
+
+func isLoopbackTarget(target *url.URL) bool {
+	host := strings.TrimSuffix(strings.ToLower(target.Hostname()), ".")
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

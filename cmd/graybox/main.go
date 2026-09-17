@@ -11,7 +11,7 @@ import (
 
 // version can be replaced at build time with:
 // go build -ldflags "-X main.version=v0.1.0" ./cmd/graybox
-var version = "dev"
+var version string
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

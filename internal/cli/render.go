@@ -17,10 +17,12 @@ import (
 )
 
 type bodyJSON struct {
-	ContentType string `json:"content_type,omitempty"`
-	Size        int    `json:"size"`
-	Encoding    string `json:"encoding"`
-	Data        string `json:"data"`
+	ContentType  string `json:"content_type,omitempty"`
+	OriginalSize int64  `json:"original_size"`
+	CapturedSize int    `json:"captured_size"`
+	Truncated    bool   `json:"truncated"`
+	Encoding     string `json:"encoding"`
+	Data         string `json:"data"`
 }
 
 type requestJSON struct {
@@ -41,6 +43,7 @@ type exchangeJSON struct {
 	Protocol   string       `json:"protocol"`
 	StartedAt  string       `json:"started_at"`
 	DurationMS float64      `json:"duration_ms"`
+	ProxyError string       `json:"proxy_error,omitempty"`
 	Request    requestJSON  `json:"request"`
 	Response   responseJSON `json:"response"`
 }
@@ -48,16 +51,20 @@ type exchangeJSON struct {
 func toExchangeJSON(ex recording.Exchange) exchangeJSON {
 	return exchangeJSON{
 		ID: ex.ID, Protocol: ex.Protocol, StartedAt: ex.StartedAt.Format("2006-01-02T15:04:05.999999999Z07:00"),
-		DurationMS: durationMS(ex.Duration),
+		DurationMS: durationMS(ex.Duration), ProxyError: ex.ProxyError,
 		Request: requestJSON{Method: ex.Request.Method, URL: ex.Request.URL, Headers: ex.Request.Headers,
-			Body: makeBodyJSON(ex.Request.Body, ex.Request.Headers.Get("Content-Type"))},
+			Body: makeBodyJSON(ex.Request.Body, ex.Request.BodySize, ex.Request.BodyTruncated, ex.Request.Headers.Get("Content-Type"))},
 		Response: responseJSON{Status: ex.Response.StatusCode, Headers: ex.Response.Headers,
-			Body: makeBodyJSON(ex.Response.Body, ex.Response.Headers.Get("Content-Type"))},
+			Body: makeBodyJSON(ex.Response.Body, ex.Response.BodySize, ex.Response.BodyTruncated, ex.Response.Headers.Get("Content-Type"))},
 	}
 }
 
-func makeBodyJSON(body []byte, contentType string) bodyJSON {
-	result := bodyJSON{ContentType: contentType, Size: len(body), Encoding: "utf8", Data: string(body)}
+func makeBodyJSON(body []byte, originalSize int64, truncated bool, contentType string) bodyJSON {
+	if originalSize == 0 && len(body) > 0 {
+		originalSize = int64(len(body))
+	}
+	result := bodyJSON{ContentType: contentType, OriginalSize: originalSize, CapturedSize: len(body),
+		Truncated: truncated || originalSize > int64(len(body)), Encoding: "utf8", Data: string(body)}
 	if !isText(body, contentType) {
 		result.Encoding = "base64"
 		result.Data = base64.StdEncoding.EncodeToString(body)
@@ -88,7 +95,13 @@ func writeHeaders(w interface{ Write([]byte) (int, error) }, headers http.Header
 	}
 }
 
-func writeBody(w interface{ Write([]byte) (int, error) }, body []byte, contentType string) {
+func writeBody(w interface{ Write([]byte) (int, error) }, body []byte, originalSize int64, truncated bool, contentType string) {
+	if originalSize == 0 && len(body) > 0 {
+		originalSize = int64(len(body))
+	}
+	if truncated || originalSize > int64(len(body)) {
+		fmt.Fprintf(w, "[truncated: captured %d of %d bytes]\n", len(body), originalSize)
+	}
 	if len(body) == 0 {
 		fmt.Fprintln(w, "(empty)")
 		return
