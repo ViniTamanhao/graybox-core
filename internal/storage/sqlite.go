@@ -238,7 +238,14 @@ func headerColumnSpecs() []columnSpec {
 }
 
 func bodyColumnSpecs() []columnSpec {
-	return []columnSpec{{"exchange_id", "INTEGER", false, 1}, {"content", "BLOB", true, 0}, {"original_size", "INTEGER", true, 0}, {"captured_size", "INTEGER", true, 0}, {"truncated", "INTEGER", true, 0}}
+	return []columnSpec{
+		{"exchange_id", "INTEGER", false, 1},
+		{"content", "BLOB", true, 0},
+		{"observed_size", "INTEGER", true, 0},
+		{"captured_size", "INTEGER", true, 0},
+		{"truncated", "INTEGER", true, 0},
+		{"complete", "INTEGER", true, 0},
+	}
 }
 
 func (s *Store) validateTable(ctx context.Context, table tableSpec) error {
@@ -271,19 +278,44 @@ func (s *Store) validateTable(ctx context.Context, table tableSpec) error {
 
 func (s *Store) validateBodyConstraints(ctx context.Context, table string) error {
 	var definition string
-	if err := s.db.QueryRowContext(ctx, `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&definition); err != nil {
-		return fmt.Errorf("%w: cannot inspect table %s", ErrInvalidRecording, table)
+
+	if err := s.db.QueryRowContext(
+		ctx,
+		`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`,
+		table,
+	).Scan(&definition); err != nil {
+		return fmt.Errorf(
+			"%w: cannot inspect table %s",
+			ErrInvalidRecording,
+			table,
+		)
 	}
-	compact := strings.NewReplacer(" ", "", "\n", "", "\r", "", "\t", "").Replace(strings.ToUpper(definition))
+
+	compact := strings.NewReplacer(
+		" ", "",
+		"\n", "",
+		"\r", "",
+		"\t", "",
+	).Replace(strings.ToUpper(definition))
+
 	for _, constraint := range []string{
+		"CHECK(OBSERVED_SIZE>=0)",
+		"CHECK(CAPTURED_SIZE>=0)",
+		"CHECK(TRUNCATEDIN(0,1))",
+		"CHECK(COMPLETEIN(0,1))",
 		"CHECK(CAPTURED_SIZE=LENGTH(CONTENT))",
-		"CHECK(CAPTURED_SIZE<=ORIGINAL_SIZE)",
-		"CHECK((TRUNCATED=0ANDCAPTURED_SIZE=ORIGINAL_SIZE)OR(TRUNCATED=1ANDCAPTURED_SIZE<ORIGINAL_SIZE))",
+		"CHECK(CAPTURED_SIZE<=OBSERVED_SIZE)",
+		"CHECK((TRUNCATED=0ANDCAPTURED_SIZE=OBSERVED_SIZE)OR(TRUNCATED=1ANDCAPTURED_SIZE<OBSERVED_SIZE))",
 	} {
 		if !strings.Contains(compact, constraint) {
-			return fmt.Errorf("%w: table %s has incompatible body metadata constraints", ErrInvalidRecording, table)
+			return fmt.Errorf(
+				"%w: table %s has incompatible body metadata constraints",
+				ErrInvalidRecording,
+				table,
+			)
 		}
 	}
+
 	return nil
 }
 
@@ -368,26 +400,28 @@ CREATE TABLE response_headers (
     PRIMARY KEY (exchange_id, name, ordinal)
 );
 CREATE TABLE request_bodies (
-    exchange_id INTEGER PRIMARY KEY REFERENCES exchanges(id) ON DELETE CASCADE,
+    exchange_id  INTEGER PRIMARY KEY REFERENCES exchanges(id) ON DELETE CASCADE,
     content       BLOB NOT NULL,
-    original_size INTEGER NOT NULL CHECK (original_size >= 0),
+    observed_size INTEGER NOT NULL CHECK (observed_size >= 0),
     captured_size INTEGER NOT NULL CHECK (captured_size >= 0),
     truncated     INTEGER NOT NULL CHECK (truncated IN (0, 1)),
+    complete      INTEGER NOT NULL CHECK (complete IN (0, 1)),
     CHECK (captured_size = length(content)),
-    CHECK (captured_size <= original_size),
-    CHECK ((truncated = 0 AND captured_size = original_size) OR
-           (truncated = 1 AND captured_size < original_size))
+    CHECK (captured_size <= observed_size),
+    CHECK ((truncated = 0 AND captured_size = observed_size) OR
+           (truncated = 1 AND captured_size < observed_size))
 );
 CREATE TABLE response_bodies (
-    exchange_id INTEGER PRIMARY KEY REFERENCES exchanges(id) ON DELETE CASCADE,
+    exchange_id  INTEGER PRIMARY KEY REFERENCES exchanges(id) ON DELETE CASCADE,
     content       BLOB NOT NULL,
-    original_size INTEGER NOT NULL CHECK (original_size >= 0),
+    observed_size INTEGER NOT NULL CHECK (observed_size >= 0),
     captured_size INTEGER NOT NULL CHECK (captured_size >= 0),
     truncated     INTEGER NOT NULL CHECK (truncated IN (0, 1)),
+    complete      INTEGER NOT NULL CHECK (complete IN (0, 1)),
     CHECK (captured_size = length(content)),
-    CHECK (captured_size <= original_size),
-    CHECK ((truncated = 0 AND captured_size = original_size) OR
-           (truncated = 1 AND captured_size < original_size))
+    CHECK (captured_size <= observed_size),
+    CHECK ((truncated = 0 AND captured_size = observed_size) OR
+           (truncated = 1 AND captured_size < observed_size))
 );
 CREATE INDEX exchanges_started_at_idx ON exchanges(started_at);
 CREATE INDEX exchanges_method_idx ON exchanges(request_method);

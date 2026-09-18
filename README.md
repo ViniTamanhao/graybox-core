@@ -29,7 +29,7 @@ ID   METHOD   PATH     STATUS   TIME
 
 ## Why Graybox?
 
-An API failure is easier to debug when the effective upstream request, observed response, headers, captured body bytes, and timing survive after the process stops. Graybox creates a durable recording of that behavior. Body capture is bounded: traffic continues to stream after the configured limit, while the recording keeps the captured prefix plus `original_size`, `captured_size`, and `truncated` metadata. A recording is an ordinary SQLite database, so it works with the Graybox CLI, `sqlite3`, scripts, CI jobs, and coding agents.
+An API failure is easier to debug when the effective upstream request, observed response, headers, captured body bytes, and timing survive after the process stops. Graybox creates a durable recording of that behavior. Body capture is bounded: traffic continues to stream after the configured limit, while the recording keeps the captured prefix plus `observed_size`, `captured_size`, `truncated`, and `complete` metadata. A recording is an ordinary SQLite database, so it works with the Graybox CLI, `sqlite3`, scripts, CI jobs, and coding agents.
 
 Graybox is a focused local development tool—not an APM, packet analyzer, production monitoring system, service mesh, or hosted API client.
 
@@ -81,7 +81,7 @@ curl -X POST http://127.0.0.1:9000/echo \
 
 Press Ctrl+C in the recorder terminal. Graybox stops accepting connections, lets in-flight handlers finish, and closes the SQLite recording cleanly.
 
-If one or more completed exchanges cannot be committed to SQLite, proxying continues where possible, but shutdown reports the number lost and exits non-zero. Upstream HTTP error responses and connection failures are valid recorded events and do not make the recording incomplete when their exchanges are persisted.
+If one or more observed exchanges cannot be committed to SQLite, proxying continues where possible, but shutdown reports the number lost and exits non-zero. Upstream HTTP error responses and connection failures are valid recorded events. When response streaming is interrupted after it starts, Graybox records the partial exchange when possible and marks the response body incomplete.
 
 ## List recordings
 
@@ -100,7 +100,7 @@ Results are ordered by request start time and then by stable exchange ID. Method
 graybox show example.graybox 2
 ```
 
-JSON and text bodies are rendered as text, with valid JSON indented. Binary bodies are never written raw to a terminal; the human view reports their size and media type.
+JSON and text bodies are rendered as text, with valid JSON indented. Binary bodies are never written raw to a terminal; the human view reports their size and media type. Capture truncation and an interrupted body stream are labeled independently.
 
 ## Replay requests
 
@@ -118,9 +118,9 @@ graybox replay example.graybox \
   --target http://localhost:8081
 ```
 
-Replay preserves the method, escaped path, query, request body when fully captured, and ordinary effective outbound request headers. A path prefix in `--target` is prepended, and the target supplies the replay `Host`. Graybox omits content length, connection, transfer-encoding, other hop-by-hop headers, and any header with a redacted value. HTTP response status codes are reported but are not compared with the recording in V0.
+Replay preserves the method, escaped path, raw query representation, request body when fully captured and complete, and ordinary effective outbound request headers. Graybox deliberately preserves unusual raw queries—including semicolons and percent encoding—for debugging fidelity. A path prefix in `--target` is prepended, and the target supplies the replay `Host`. Graybox omits content length, connection, transfer-encoding, other hop-by-hop headers, and any header with a redacted value. HTTP response status codes are reported but are not compared with the recording in V0.
 
-Graybox follows no redirects during replay: a redirect is the result for that exchange. For safety, an omitted `--target` uses the recorded target only when its host is `localhost`, a `*.localhost` name, or a loopback IP address. To contact any other original target, provide an explicit `--target` or acknowledge the risk with `--unsafe-original-target`. A request whose recorded body was truncated is not replayed.
+Graybox follows no redirects during replay: a redirect is the result for that exchange. For safety, an omitted `--target` uses the recorded target only when its host is `localhost`, a `*.localhost` name, or a loopback IP address. To contact any other original target, provide an explicit `--target` or acknowledge the risk with `--unsafe-original-target`. A request whose recorded body was truncated or incomplete is not replayed.
 
 ## JSON for scripts and agents
 
@@ -137,15 +137,16 @@ Bodies have an explicit contract:
 ```json
 {
   "content_type": "application/octet-stream",
-  "original_size": 4,
+  "observed_size": 4,
   "captured_size": 4,
   "truncated": false,
+  "complete": true,
   "encoding": "base64",
   "data": "AAEC/w=="
 }
 ```
 
-Textual bodies use `"encoding": "utf8"`; binary bodies use `"encoding": "base64"`. Body sizes and truncation are always explicit. Durations are numeric milliseconds and timestamps are RFC 3339 with nanosecond precision. Header values are arrays so repeated fields are preserved. A `proxy_error` field distinguishes a Graybox-generated 502 from an upstream 502.
+Textual bodies use `"encoding": "utf8"`; binary bodies use `"encoding": "base64"`. `observed_size` is the number of bytes Graybox actually saw, while `captured_size` is the retained byte count. `truncated` means the capture limit omitted observed bytes; `complete` means the HTTP body stream finished normally. These states are independent: `truncated: false` does not imply `complete: true`. Durations are numeric milliseconds and timestamps are RFC 3339 with nanosecond precision. Header values are arrays so repeated fields are preserved. A `proxy_error` field distinguishes a Graybox-generated 502 from an upstream 502.
 
 ## Recording format
 
@@ -181,7 +182,7 @@ An HTTP 4xx or 5xx is still a completed replay, not a transport failure.
 
 ## V0 scope and limitations
 
-V0 provides `record`, `ls`, `show`, and sequential `replay` for ordinary HTTP/1.x application traffic, plus `version` and `help`. It uses an explicit reverse proxy. Requests and responses stream through it; by default Graybox retains at most 10 MiB from each body and records the observed size and truncation state. Change this bound with `record --body-limit BYTES`.
+V0 provides `record`, `ls`, `show`, and sequential `replay` for ordinary HTTP/1.x application traffic, plus `version` and `help`. It uses an explicit reverse proxy. Requests and responses stream through it; by default Graybox retains at most 10 MiB from each body and records observed size, retained size, capture truncation, and stream completion independently. Change this bound with `record --body-limit BYTES`.
 
 V0 has no semantic diffing, mock server, configurable sanitizer, query language, daemon, web UI, packet capture, transparent proxy, WebSocket recording, SSE-specific behavior, gRPC decoding, cloud service, tracing system, or embedded AI calls.
 

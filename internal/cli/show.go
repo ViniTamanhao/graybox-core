@@ -14,8 +14,8 @@ func (a App) runShow(ctx context.Context, args []string) (int, error) {
 	usage := func() {
 		fmt.Fprint(a.Stdout, `Usage: graybox show RECORDING ID [options]
 
-Show one complete recorded exchange, including proxy errors and body capture
-sizes. Truncation is always labeled. JSON output uses UTF-8 or base64.
+Show one recorded exchange, including proxy errors and body capture state.
+Truncated and incomplete bodies are labeled. JSON uses UTF-8 or base64.
 
 Options:
   --json             emit structured JSON
@@ -73,10 +73,24 @@ Example:
 	fmt.Fprintln(a.Stdout, "Request\n\nHeaders:")
 	writeHeaders(a.Stdout, ex.Request.Headers)
 	fmt.Fprintln(a.Stdout, "\nBody:")
-	writeBody(a.Stdout, ex.Request.Body, ex.Request.BodySize, ex.Request.BodyTruncated, ex.Request.Headers.Get("Content-Type"))
+	writeBody(
+		a.Stdout,
+		ex.Request.Body,
+		ex.Request.ObservedSize,
+		ex.Request.Truncated,
+		ex.Request.Complete,
+		ex.Request.Headers.Get("Content-Type"),
+	)
 	fmt.Fprintln(a.Stdout, "\nResponse\n\nHeaders:")
 	writeHeaders(a.Stdout, ex.Response.Headers)
 	fmt.Fprintln(a.Stdout, "\nBody:")
-	writeBody(a.Stdout, ex.Response.Body, ex.Response.BodySize, ex.Response.BodyTruncated, ex.Response.Headers.Get("Content-Type"))
+	writeBody(
+		a.Stdout,
+		ex.Response.Body,
+		ex.Response.ObservedSize,
+		ex.Response.Truncated,
+		ex.Response.Complete,
+		ex.Response.Headers.Get("Content-Type"),
+	)
 	return ExitSuccess, nil
 }

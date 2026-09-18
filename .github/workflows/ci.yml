@@ -27,6 +27,9 @@ jobs:
         run: git diff --exit-code
       - name: Test
         run: go test ./...
+      - name: Race test
+        if: runner.os == 'Linux'
+        run: go test -race ./...
       - name: Vet
         run: go vet ./...
       - name: Build

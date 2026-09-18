@@ -4,6 +4,7 @@ package capture
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,13 +22,13 @@ import (
 // response body. Traffic continues to stream after this limit is reached.
 const DefaultBodyCaptureLimit int64 = 10 << 20
 
-// Recorder persists a completed observed exchange.
+// Recorder persists an observed exchange.
 type Recorder interface {
 	Add(context.Context, recording.Exchange) (int64, error)
 }
 
 // ErrorHandlers keeps upstream transport diagnostics separate from failures
-// to persist an otherwise completed exchange.
+// to persist an observed exchange.
 type ErrorHandlers struct {
 	Transport   func(error)
 	Persistence func(error)
@@ -44,19 +45,19 @@ type Proxy struct {
 }
 
 // NewProxy builds a recording reverse proxy with the default body limit.
-func NewProxy(target *url.URL, recorder Recorder, errors ErrorHandlers) *Proxy {
-	return NewProxyWithBodyLimit(target, recorder, DefaultBodyCaptureLimit, errors)
+func NewProxy(target *url.URL, recorder Recorder, handlers ErrorHandlers) *Proxy {
+	return NewProxyWithBodyLimit(target, recorder, DefaultBodyCaptureLimit, handlers)
 }
 
 // NewProxyWithBodyLimit builds a recording reverse proxy with a bounded body
-// capture. The complete request and response still stream through the proxy.
-func NewProxyWithBodyLimit(target *url.URL, recorder Recorder, bodyLimit int64, errors ErrorHandlers) *Proxy {
+// capture. Reaching the capture limit does not truncate proxied traffic.
+func NewProxyWithBodyLimit(target *url.URL, recorder Recorder, bodyLimit int64, handlers ErrorHandlers) *Proxy {
 	reverse := &httputil.ReverseProxy{
 		Rewrite: func(request *httputil.ProxyRequest) {
 			request.SetURL(target)
+			request.Out.URL.RawQuery = request.In.URL.RawQuery
+			request.Out.URL.ForceQuery = request.In.URL.ForceQuery
 			request.Out.Host = target.Host
-			// Rewrite removes client-supplied forwarding headers. Rebuild them
-			// explicitly from the connection Graybox actually received.
 			request.SetXForwarded()
 		},
 	}
@@ -70,60 +71,70 @@ func NewProxyWithBodyLimit(target *url.URL, recorder Recorder, bodyLimit int64, 
 			captured.proxyError = err.Error()
 		}
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
-		if errors.Transport != nil {
-			errors.Transport(fmt.Errorf("forward request: %w", err))
+		if handlers.Transport != nil {
+			handlers.Transport(fmt.Errorf("forward request: %w", err))
 		}
 	}
-	return &Proxy{proxy: reverse, recorder: recorder, errors: errors, bodyLimit: bodyLimit}
+	return &Proxy{proxy: reverse, recorder: recorder, errors: handlers, bodyLimit: bodyLimit}
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
+
 	requestBody := newCaptureReadCloser(r.Body, p.bodyLimit)
 	r.Body = requestBody
-	outbound := new(outboundRequest)
-	r = r.WithContext(context.WithValue(r.Context(), outboundRequestKey{}, outbound))
 
-	captured := &captureWriter{ResponseWriter: w, status: http.StatusOK, limit: p.bodyLimit}
-	p.proxy.ServeHTTP(captured, r)
-	ended := time.Now()
-	requestSize := requestBody.size
-	requestTruncated := requestBody.truncated()
-	if r.ContentLength > requestSize {
-		requestSize = r.ContentLength
-		requestTruncated = true
+	outbound := new(outboundRequest)
+	r = r.WithContext(context.WithValue(
+		r.Context(),
+		outboundRequestKey{},
+		outbound,
+	))
+
+	captured := &captureWriter{
+		ResponseWriter: w,
+		status:         http.StatusOK,
+		limit:          p.bodyLimit,
 	}
-	exchange := recording.Exchange{
-		Protocol:   "http",
-		StartedAt:  started.UTC(),
-		EndedAt:    ended.UTC(),
-		Duration:   ended.Sub(started),
-		ProxyError: captured.proxyError,
-		Request: recording.Request{
-			Method:        r.Method,
-			URL:           r.URL.RequestURI(),
-			Headers:       sanitize.Headers(outbound.snapshot()),
-			Body:          requestBody.bytes(),
-			BodySize:      requestSize,
-			BodyTruncated: requestTruncated,
-		},
-		Response: recording.Response{
-			StatusCode:    captured.status,
-			Headers:       sanitize.Headers(captured.Header()),
-			Body:          append([]byte(nil), captured.body.Bytes()...),
-			BodySize:      captured.size,
-			BodyTruncated: captured.truncated(),
-		},
-	}
-	if _, err := p.recorder.Add(context.WithoutCancel(r.Context()), exchange); err != nil {
-		p.persistenceFailures.Add(1)
-		if p.errors.Persistence != nil {
-			p.errors.Persistence(fmt.Errorf("record exchange: %w", err))
+
+	defer func() {
+		recovered := recover()
+		if recovered != nil && recovered != http.ErrAbortHandler {
+			panic(recovered)
 		}
-	}
+
+		responseComplete := recovered == nil && captured.complete()
+		if !responseComplete && captured.proxyError == "" {
+			var streamErr error
+			if captured.writeErr != nil {
+				streamErr = fmt.Errorf("write response: %w", captured.writeErr)
+			} else {
+				streamErr = errors.New("response stream aborted")
+			}
+			captured.proxyError = streamErr.Error()
+			if p.errors.Transport != nil {
+				p.errors.Transport(streamErr)
+			}
+		}
+
+		p.persistExchange(
+			r,
+			started,
+			requestBody,
+			outbound,
+			captured,
+			responseComplete,
+		)
+
+		if recovered != nil {
+			panic(recovered)
+		}
+	}()
+
+	p.proxy.ServeHTTP(captured, r)
 }
 
-// PersistenceFailures reports how many completed exchanges could not be
+// PersistenceFailures reports how many observed exchanges could not be
 // committed. Upstream HTTP and transport failures are not included.
 func (p *Proxy) PersistenceFailures() uint64 { return p.persistenceFailures.Load() }
 
@@ -164,10 +175,12 @@ func (t captureTransport) RoundTrip(request *http.Request) (*http.Response, erro
 }
 
 type captureReadCloser struct {
-	reader io.ReadCloser
-	limit  int64
-	size   int64
-	body   bytes.Buffer
+	reader  io.ReadCloser
+	limit   int64
+	size    int64
+	body    bytes.Buffer
+	sawEOF  bool
+	readErr error
 }
 
 func newCaptureReadCloser(reader io.ReadCloser, limit int64) *captureReadCloser {
@@ -176,14 +189,34 @@ func newCaptureReadCloser(reader io.ReadCloser, limit int64) *captureReadCloser 
 
 func (r *captureReadCloser) Read(data []byte) (int, error) {
 	if r.reader == nil {
+		r.sawEOF = true
 		return 0, io.EOF
 	}
+
 	n, err := r.reader.Read(data)
 	if n > 0 {
 		r.size += int64(n)
 		r.capture(data[:n])
 	}
+
+	switch {
+	case err == io.EOF:
+		r.sawEOF = true
+	case err != nil:
+		r.readErr = err
+	}
+
 	return n, err
+}
+
+func (r *captureReadCloser) complete(contentLength int64) bool {
+	if r.readErr != nil {
+		return false
+	}
+	if contentLength >= 0 {
+		return r.size >= contentLength
+	}
+	return r.sawEOF
 }
 
 func (r *captureReadCloser) capture(data []byte) {
@@ -215,6 +248,7 @@ type captureWriter struct {
 	size        int64
 	body        bytes.Buffer
 	proxyError  string
+	writeErr    error
 }
 
 func (w *captureWriter) WriteHeader(status int) {
@@ -230,19 +264,33 @@ func (w *captureWriter) Write(data []byte) (int, error) {
 	if !w.wroteHeader {
 		w.WriteHeader(http.StatusOK)
 	}
+
+	w.size += int64(len(data))
+	w.capture(data)
+
 	n, err := w.ResponseWriter.Write(data)
-	if n > 0 {
-		w.size += int64(n)
-		remaining := w.limit - int64(w.body.Len())
-		captured := data[:n]
-		if remaining > 0 {
-			if int64(len(captured)) > remaining {
-				captured = captured[:remaining]
-			}
-			_, _ = w.body.Write(captured)
-		}
+	if err != nil && w.writeErr == nil {
+		w.writeErr = err
+	}
+	if n < len(data) && err == nil && w.writeErr == nil {
+		w.writeErr = io.ErrShortWrite
 	}
 	return n, err
+}
+
+func (w *captureWriter) capture(data []byte) {
+	remaining := w.limit - int64(w.body.Len())
+	if remaining <= 0 {
+		return
+	}
+	if int64(len(data)) > remaining {
+		data = data[:remaining]
+	}
+	_, _ = w.body.Write(data)
+}
+
+func (w *captureWriter) complete() bool {
+	return w.writeErr == nil
 }
 
 func (w *captureWriter) truncated() bool { return w.size > int64(w.body.Len()) }
@@ -257,3 +305,51 @@ func (w *captureWriter) Flush() {
 }
 
 func (w *captureWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
+func (p *Proxy) persistExchange(
+	r *http.Request,
+	started time.Time,
+	requestBody *captureReadCloser,
+	outbound *outboundRequest,
+	captured *captureWriter,
+	responseComplete bool,
+) {
+	ended := time.Now()
+
+	exchange := recording.Exchange{
+		Protocol:   "http",
+		StartedAt:  started.UTC(),
+		EndedAt:    ended.UTC(),
+		Duration:   ended.Sub(started),
+		ProxyError: captured.proxyError,
+		Request: recording.Request{
+			Method:       r.Method,
+			URL:          r.URL.RequestURI(),
+			Headers:      sanitize.Headers(outbound.snapshot()),
+			Body:         requestBody.bytes(),
+			ObservedSize: requestBody.size,
+			Truncated:    requestBody.truncated(),
+			Complete:     requestBody.complete(r.ContentLength),
+		},
+		Response: recording.Response{
+			StatusCode:   captured.status,
+			Headers:      sanitize.Headers(captured.Header()),
+			Body:         append([]byte(nil), captured.body.Bytes()...),
+			ObservedSize: captured.size,
+			Truncated:    captured.truncated(),
+			Complete:     responseComplete,
+		},
+	}
+
+	if _, err := p.recorder.Add(
+		context.WithoutCancel(r.Context()),
+		exchange,
+	); err != nil {
+		p.persistenceFailures.Add(1)
+		if p.errors.Persistence != nil {
+			p.errors.Persistence(
+				fmt.Errorf("record exchange: %w", err),
+			)
+		}
+	}
+}

@@ -30,6 +30,14 @@ func TestBuildURL(t *testing.T) {
 	if got.String() != "https://example.test/api/users/a%2Fb?q=hello%20world" {
 		t.Fatalf("URL = %q", got.String())
 	}
+
+	got, err = BuildURL(target, "/empty-query?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.String() != "https://example.test/api/empty-query?" || !got.ForceQuery {
+		t.Fatalf("forced-query URL = %q, ForceQuery = %v", got.String(), got.ForceQuery)
+	}
 }
 
 func TestRunnerPreservesRequestAndOmitsUnsafeHeaders(t *testing.T) {
@@ -44,8 +52,22 @@ func TestRunnerPreservesRequestAndOmitsUnsafeHeaders(t *testing.T) {
 	}))
 	defer server.Close()
 	target, _ := url.Parse(server.URL)
-	ex := recording.Exchange{ID: 7, Request: recording.Request{Method: "PATCH", URL: "/thing?q=1", Body: []byte("payload"), Headers: http.Header{
-		"Authorization": {sanitize.RedactedValue}, "Connection": {"close, X-Hop"}, "X-Hop": {"unsafe"}, "X-Test": {"yes"}}}}
+	ex := recording.Exchange{
+		ID: 7,
+		Request: recording.Request{
+			Method:       "PATCH",
+			URL:          "/thing?q=1",
+			Body:         []byte("payload"),
+			ObservedSize: 7,
+			Complete:     true,
+			Headers: http.Header{
+				"Authorization": {sanitize.RedactedValue},
+				"Connection":    {"close, X-Hop"},
+				"X-Hop":         {"unsafe"},
+				"X-Test":        {"yes"},
+			},
+		},
+	}
 	results, err := (Runner{Source: fakeSource{ex}, Client: server.Client()}).Run(context.Background(), target, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +103,14 @@ func TestRunnerStopsAtRedirectAndDoesNotInjectCompression(t *testing.T) {
 	}))
 	defer server.Close()
 	target, _ := url.Parse(server.URL)
-	ex := recording.Exchange{ID: 1, Request: recording.Request{Method: http.MethodGet, URL: "/start"}}
+	ex := recording.Exchange{
+		ID: 1,
+		Request: recording.Request{
+			Method:   http.MethodGet,
+			URL:      "/start",
+			Complete: true,
+		},
+	}
 	results, err := (Runner{Source: fakeSource{ex}}).Run(context.Background(), target, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +131,17 @@ func TestRunnerRefusesTruncatedRequestBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
 	defer server.Close()
 	target, _ := url.Parse(server.URL)
-	ex := recording.Exchange{ID: 3, Request: recording.Request{Method: http.MethodPost, URL: "/", Body: []byte("part"), BodySize: 10, BodyTruncated: true}}
+	ex := recording.Exchange{
+		ID: 3,
+		Request: recording.Request{
+			Method:       http.MethodPost,
+			URL:          "/",
+			Body:         []byte("part"),
+			ObservedSize: 10,
+			Truncated:    true,
+			Complete:     true,
+		},
+	}
 	results, err := (Runner{Source: fakeSource{ex}}).Run(context.Background(), target, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -112,5 +151,36 @@ func TestRunnerRefusesTruncatedRequestBody(t *testing.T) {
 	}
 	if called {
 		t.Fatal("request with a truncated body was sent")
+	}
+}
+
+func TestRunnerRefusesIncompleteRequestBody(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		called = true
+	}))
+	defer server.Close()
+	target, _ := url.Parse(server.URL)
+	ex := recording.Exchange{
+		ID: 4,
+		Request: recording.Request{
+			Method:       http.MethodPost,
+			URL:          "/",
+			Body:         []byte("partial"),
+			ObservedSize: 7,
+			Complete:     false,
+		},
+	}
+
+	results, err := (Runner{Source: fakeSource{ex}}).Run(context.Background(), target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Err == nil ||
+		results[0].Err.Error() != "cannot replay exchange: request body was incomplete" {
+		t.Fatalf("results = %#v", results)
+	}
+	if called {
+		t.Fatal("request with an incomplete body was sent")
 	}
 }

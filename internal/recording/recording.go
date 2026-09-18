@@ -23,21 +23,23 @@ type Exchange struct {
 
 // Request contains the replayable parts of an HTTP request.
 type Request struct {
-	Method        string
-	URL           string
-	Headers       http.Header
-	Body          []byte
-	BodySize      int64
-	BodyTruncated bool
+	Method       string
+	URL          string
+	Headers      http.Header
+	Body         []byte
+	ObservedSize int64
+	Truncated    bool
+	Complete     bool
 }
 
 // Response contains the observed HTTP response.
 type Response struct {
-	StatusCode    int
-	Headers       http.Header
-	Body          []byte
-	BodySize      int64
-	BodyTruncated bool
+	StatusCode   int
+	Headers      http.Header
+	Body         []byte
+	ObservedSize int64
+	Truncated    bool
+	Complete     bool
 }
 
 // Filter restricts exchange listing. Path is an exact escaped URL-path match
