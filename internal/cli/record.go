@@ -18,6 +18,15 @@ import (
 
 const defaultListenAddress = "127.0.0.1:9000"
 
+type recordingStore interface {
+	capture.Recorder
+	SetMetadata(context.Context, string, string) error
+	Close() error
+}
+
+type createRecordingFunc func(context.Context, string, string) (recordingStore, error)
+type listenFunc func(string, string) (net.Listener, error)
+
 func (a App) runRecord(ctx context.Context, args []string) (int, error) {
 	var listen, targetValue, output string
 	var bodyLimit int64
@@ -26,12 +35,14 @@ func (a App) runRecord(ctx context.Context, args []string) (int, error) {
 		fmt.Fprint(a.Stdout, `Usage: graybox record --target URL [options]
 
 Proxy HTTP traffic to an upstream target and record it in a .graybox file.
+Traffic continues to stream when bounded body captures are truncated. If any
+completed exchange cannot be persisted, shutdown reports the loss and fails.
 
 Options:
   --listen ADDRESS   listen address (default 127.0.0.1:9000)
   --target URL       upstream HTTP or HTTPS URL (required)
   --output FILE      output recording (default session.graybox)
-  --body-limit BYTES maximum bytes captured per request or response body (default 10485760)
+  --body-limit BYTES maximum bytes retained per request or response body (default 10485760)
   --json             emit machine-readable startup information
   -h, --help         show this help
 
@@ -65,12 +76,22 @@ Example:
 	if err != nil {
 		return ExitUsage, err
 	}
-	listener, err := net.Listen("tcp", listen)
+	listenNetwork := a.listen
+	if listenNetwork == nil {
+		listenNetwork = net.Listen
+	}
+	listener, err := listenNetwork("tcp", listen)
 	if err != nil {
 		return ExitInternal, fmt.Errorf("listen on %q: %w", listen, err)
 	}
 	defer listener.Close()
-	store, err := storage.Create(ctx, output, a.buildVersion())
+	createRecording := a.createRecording
+	if createRecording == nil {
+		createRecording = func(ctx context.Context, path, version string) (recordingStore, error) {
+			return storage.Create(ctx, path, version)
+		}
+	}
+	store, err := createRecording(ctx, output, a.buildVersion())
 	if err != nil {
 		return ExitInternal, fmt.Errorf("cannot create recording %q: %w", output, err)
 	}
@@ -92,10 +113,13 @@ Example:
 	}
 
 	var errorMu sync.Mutex
-	handler := capture.NewProxyWithBodyLimit(target, store, bodyLimit, func(err error) {
+	report := func(err error) {
 		errorMu.Lock()
 		defer errorMu.Unlock()
 		fmt.Fprintf(a.Stderr, "graybox: %v\n", err)
+	}
+	handler := capture.NewProxyWithBodyLimit(target, store, bodyLimit, capture.ErrorHandlers{
+		Transport: report, Persistence: report,
 	})
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	serverErrors := make(chan error, 1)
@@ -103,7 +127,7 @@ Example:
 	select {
 	case err := <-serverErrors:
 		if errors.Is(err, http.ErrServerClosed) {
-			return ExitSuccess, nil
+			return a.finishRecording(store, handler)
 		}
 		return ExitInternal, fmt.Errorf("serve proxy: %w", err)
 	case <-ctx.Done():
@@ -116,11 +140,28 @@ Example:
 		if err := <-serverErrors; err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return ExitInternal, fmt.Errorf("serve proxy: %w", err)
 		}
-		if err := store.Close(); err != nil {
-			return ExitInternal, err
-		}
-		return ExitSuccess, nil
+		return a.finishRecording(store, handler)
 	}
+}
+
+func (a App) finishRecording(store recordingStore, handler *capture.Proxy) (int, error) {
+	closeErr := store.Close()
+	failures := handler.PersistenceFailures()
+	if failures > 0 {
+		noun := "exchanges"
+		if failures == 1 {
+			noun = "exchange"
+		}
+		fmt.Fprintf(a.Stderr, "Recording completed with errors:\n%d %s could not be persisted\n", failures, noun)
+		if closeErr != nil {
+			return ExitInternal, closeErr
+		}
+		return ExitInternal, nil
+	}
+	if closeErr != nil {
+		return ExitInternal, closeErr
+	}
+	return ExitSuccess, nil
 }
 
 func parseTarget(value string) (*url.URL, error) {

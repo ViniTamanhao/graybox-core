@@ -12,7 +12,7 @@ Graybox reverse proxy -----> recording.graybox
 upstream API
 ```
 
-The proxy receives ordinary HTTP requests on an explicit address that defaults to `127.0.0.1:9000`. It forwards each request with Go's `net/http` reverse-proxy rewrite API, sets the upstream `Host` to the configured target, removes inbound forwarding headers, and explicitly constructs `X-Forwarded-For`, `X-Forwarded-Host`, and `X-Forwarded-Proto` from the received connection. It captures the observed response, redacts selected headers, and commits the completed exchange to SQLite.
+The proxy receives ordinary HTTP requests on an explicit address that defaults to `127.0.0.1:9000`. It forwards each request with Go's `net/http` reverse-proxy rewrite API, sets the upstream `Host` to the configured target, removes inbound forwarding and hop-by-hop headers, and explicitly constructs `X-Forwarded-For`, `X-Forwarded-Host`, and `X-Forwarded-Proto` from the received connection. Graybox captures the effective outbound header map passed to the HTTP transport, not the untrusted inbound map, then applies redaction before persistence. It captures the observed response and commits the completed exchange to SQLite.
 
 Request and response bodies stream through the proxy. A bounded prefix is retained for recording (10 MiB per body by default), while counters preserve the observed original size and mark truncation explicitly. A transport failure produces a client-facing 502 and a non-empty recorded proxy error; an upstream 502 has no proxy error.
 
@@ -42,6 +42,8 @@ Human and machine interfaces share the same engine:
 
 ## Shutdown and ownership
 
-The `record` command owns one HTTP server and one writable storage connection. On `SIGINT` or `SIGTERM`, it calls `http.Server.Shutdown` with a bounded grace period. Handler completion includes the SQLite transaction, so successful shutdown waits for in-flight records before closing the database. Each exchange write is one transaction. `ls`, `show`, and replay source access open recordings in SQLite read-only mode; read-only close does not run maintenance writes such as `PRAGMA optimize`.
+The `record` command owns one HTTP server and one writable storage connection. On `SIGINT` or `SIGTERM`, it calls `http.Server.Shutdown` with a bounded grace period. Handler completion includes the SQLite transaction, so successful shutdown waits for in-flight records before closing the database. Each exchange write is one transaction. A failed exchange transaction does not interrupt proxy traffic, but it increments a persistence-failure counter; shutdown prints the number of lost exchanges and returns a non-zero exit status. Upstream HTTP responses and transport failures are recorded application events, not persistence failures.
+
+`ls`, `show`, and replay source access open recordings with a platform-correct SQLite `file:` URI in `mode=ro`. Their connections reject writes, and read-only close does not run maintenance writes such as `PRAGMA optimize`. New recording files use exclusive creation so existing files are not overwritten and request restrictive `0600` permissions where the operating system supports POSIX modes.
 
 V0 records ordinary HTTP application exchanges and does not promise HTTP/2 framing fidelity, server push, upgraded connections, WebSockets, or protocol-specific gRPC behavior.

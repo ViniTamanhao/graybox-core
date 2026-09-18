@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/opemori/graybox-core/internal/recording"
@@ -24,22 +26,31 @@ type Recorder interface {
 	Add(context.Context, recording.Exchange) (int64, error)
 }
 
+// ErrorHandlers keeps upstream transport diagnostics separate from failures
+// to persist an otherwise completed exchange.
+type ErrorHandlers struct {
+	Transport   func(error)
+	Persistence func(error)
+}
+
 // Proxy is an HTTP handler that forwards and records traffic.
 type Proxy struct {
 	proxy     *httputil.ReverseProxy
 	recorder  Recorder
-	onError   func(error)
+	errors    ErrorHandlers
 	bodyLimit int64
+
+	persistenceFailures atomic.Uint64
 }
 
 // NewProxy builds a recording reverse proxy with the default body limit.
-func NewProxy(target *url.URL, recorder Recorder, onError func(error)) *Proxy {
-	return NewProxyWithBodyLimit(target, recorder, DefaultBodyCaptureLimit, onError)
+func NewProxy(target *url.URL, recorder Recorder, errors ErrorHandlers) *Proxy {
+	return NewProxyWithBodyLimit(target, recorder, DefaultBodyCaptureLimit, errors)
 }
 
 // NewProxyWithBodyLimit builds a recording reverse proxy with a bounded body
 // capture. The complete request and response still stream through the proxy.
-func NewProxyWithBodyLimit(target *url.URL, recorder Recorder, bodyLimit int64, onError func(error)) *Proxy {
+func NewProxyWithBodyLimit(target *url.URL, recorder Recorder, bodyLimit int64, errors ErrorHandlers) *Proxy {
 	reverse := &httputil.ReverseProxy{
 		Rewrite: func(request *httputil.ProxyRequest) {
 			request.SetURL(target)
@@ -53,23 +64,25 @@ func NewProxyWithBodyLimit(target *url.URL, recorder Recorder, bodyLimit int64, 
 	// Do not inject Accept-Encoding or transparently decompress: the explicit
 	// proxy should forward the representation the client asked to receive.
 	transport.DisableCompression = true
-	reverse.Transport = transport
+	reverse.Transport = captureTransport{base: transport}
 	reverse.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
 		if captured, ok := w.(*captureWriter); ok {
 			captured.proxyError = err.Error()
 		}
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
-		if onError != nil {
-			onError(fmt.Errorf("forward request: %w", err))
+		if errors.Transport != nil {
+			errors.Transport(fmt.Errorf("forward request: %w", err))
 		}
 	}
-	return &Proxy{proxy: reverse, recorder: recorder, onError: onError, bodyLimit: bodyLimit}
+	return &Proxy{proxy: reverse, recorder: recorder, errors: errors, bodyLimit: bodyLimit}
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 	requestBody := newCaptureReadCloser(r.Body, p.bodyLimit)
 	r.Body = requestBody
+	outbound := new(outboundRequest)
+	r = r.WithContext(context.WithValue(r.Context(), outboundRequestKey{}, outbound))
 
 	captured := &captureWriter{ResponseWriter: w, status: http.StatusOK, limit: p.bodyLimit}
 	p.proxy.ServeHTTP(captured, r)
@@ -89,7 +102,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Request: recording.Request{
 			Method:        r.Method,
 			URL:           r.URL.RequestURI(),
-			Headers:       sanitize.Headers(r.Header),
+			Headers:       sanitize.Headers(outbound.snapshot()),
 			Body:          requestBody.bytes(),
 			BodySize:      requestSize,
 			BodyTruncated: requestTruncated,
@@ -103,14 +116,51 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	if _, err := p.recorder.Add(context.WithoutCancel(r.Context()), exchange); err != nil {
-		p.report(fmt.Errorf("record exchange: %w", err))
+		p.persistenceFailures.Add(1)
+		if p.errors.Persistence != nil {
+			p.errors.Persistence(fmt.Errorf("record exchange: %w", err))
+		}
 	}
 }
 
-func (p *Proxy) report(err error) {
-	if p.onError != nil {
-		p.onError(err)
+// PersistenceFailures reports how many completed exchanges could not be
+// committed. Upstream HTTP and transport failures are not included.
+func (p *Proxy) PersistenceFailures() uint64 { return p.persistenceFailures.Load() }
+
+type outboundRequestKey struct{}
+
+type outboundRequest struct {
+	mu      sync.Mutex
+	headers http.Header
+}
+
+func (r *outboundRequest) setHeaders(headers http.Header) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.headers = headers.Clone()
+}
+
+func (r *outboundRequest) snapshot() http.Header {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.headers == nil {
+		// ReverseProxy can reject a malformed request before it reaches the
+		// transport. In that case there was no effective upstream header set;
+		// never fall back to persisting the untrusted inbound headers.
+		return make(http.Header)
 	}
+	return r.headers.Clone()
+}
+
+type captureTransport struct{ base http.RoundTripper }
+
+func (t captureTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	if captured, ok := request.Context().Value(outboundRequestKey{}).(*outboundRequest); ok {
+		// ReverseProxy has already removed hop-by-hop and spoofed forwarding
+		// headers and applied Rewrite before invoking its transport.
+		captured.setHeaders(request.Header)
+	}
+	return t.base.RoundTrip(request)
 }
 
 type captureReadCloser struct {

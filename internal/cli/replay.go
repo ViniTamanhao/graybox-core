@@ -32,7 +32,9 @@ func (a App) runReplay(ctx context.Context, args []string) (int, error) {
 		fmt.Fprint(a.Stdout, `Usage: graybox replay RECORDING [options]
 
 Replay recorded requests sequentially. If --target is omitted, Graybox uses
-the saved upstream target only when it is a loopback address.
+the saved upstream target only when it is a loopback address. Redirects are
+not followed, truncated request bodies are refused, and redacted credentials
+and hop-by-hop headers are omitted.
 
 Options:
   --id ID            replay only one exchange

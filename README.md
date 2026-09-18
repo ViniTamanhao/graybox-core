@@ -6,7 +6,7 @@ Graybox captures HTTP traffic into portable `.graybox` recordings that can be in
 
 **Record what happened. Reproduce it. Understand it.**
 
-> **Status:** early V0. The CLI works end to end, while the recording and JSON formats may still evolve before 1.0.
+> **Status:** Graybox V0 (`v0.1.0`). Recording schema 1 is the first public format; future incompatible recording changes require a new schema version.
 
 ```console
 $ graybox record --target http://localhost:8080 --output bug.graybox
@@ -29,7 +29,7 @@ ID   METHOD   PATH     STATUS   TIME
 
 ## Why Graybox?
 
-An API failure is easier to debug when the exact request, response, headers, bytes, and timing survive after the process stops. Graybox creates a durable recording of that behavior. A recording is an ordinary SQLite database, so it works with the Graybox CLI, `sqlite3`, scripts, CI jobs, and coding agents.
+An API failure is easier to debug when the effective upstream request, observed response, headers, captured body bytes, and timing survive after the process stops. Graybox creates a durable recording of that behavior. Body capture is bounded: traffic continues to stream after the configured limit, while the recording keeps the captured prefix plus `original_size`, `captured_size`, and `truncated` metadata. A recording is an ordinary SQLite database, so it works with the Graybox CLI, `sqlite3`, scripts, CI jobs, and coding agents.
 
 Graybox is a focused local development tool—not an APM, packet analyzer, production monitoring system, service mesh, or hosted API client.
 
@@ -81,6 +81,8 @@ curl -X POST http://127.0.0.1:9000/echo \
 
 Press Ctrl+C in the recorder terminal. Graybox stops accepting connections, lets in-flight handlers finish, and closes the SQLite recording cleanly.
 
+If one or more completed exchanges cannot be committed to SQLite, proxying continues where possible, but shutdown reports the number lost and exits non-zero. Upstream HTTP error responses and connection failures are valid recorded events and do not make the recording incomplete when their exchanges are persisted.
+
 ## List recordings
 
 ```bash
@@ -116,7 +118,7 @@ graybox replay example.graybox \
   --target http://localhost:8081
 ```
 
-Replay preserves the method, path, query, body, and ordinary request headers. A path prefix in `--target` is prepended. Graybox omits host, content length, connection, transfer-encoding, other hop-by-hop headers, and any header with a redacted value. HTTP response status codes are reported but are not compared with the recording in V0.
+Replay preserves the method, escaped path, query, request body when fully captured, and ordinary effective outbound request headers. A path prefix in `--target` is prepended, and the target supplies the replay `Host`. Graybox omits content length, connection, transfer-encoding, other hop-by-hop headers, and any header with a redacted value. HTTP response status codes are reported but are not compared with the recording in V0.
 
 Graybox follows no redirects during replay: a redirect is the result for that exchange. For safety, an omitted `--target` uses the recorded target only when its host is `localhost`, a `*.localhost` name, or a loopback IP address. To contact any other original target, provide an explicit `--target` or acknowledge the risk with `--unsafe-original-target`. A request whose recorded body was truncated is not replayed.
 
@@ -173,7 +175,7 @@ Treat every `.graybox` file as potentially sensitive. Graybox never uploads reco
 | 2 | invalid/unsupported recording, or missing exchange |
 | 3 | a single replay could not be executed or completed |
 | 4 | invalid CLI arguments or configuration |
-| 5 | internal or filesystem error |
+| 5 | internal/filesystem error, including an incomplete recording caused by persistence failure |
 
 An HTTP 4xx or 5xx is still a completed replay, not a transport failure.
 

@@ -27,6 +27,9 @@ type App struct {
 	Stdout  io.Writer
 	Stderr  io.Writer
 	Version string
+
+	createRecording createRecordingFunc
+	listen          listenFunc
 }
 
 func (a App) Run(ctx context.Context, args []string) int {

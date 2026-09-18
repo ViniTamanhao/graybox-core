@@ -96,7 +96,10 @@ func bodyMetadata(body []byte, originalSize int64, truncated bool) (int64, bool,
 	if originalSize < capturedSize {
 		return 0, false, fmt.Errorf("original size %d is smaller than captured size %d", originalSize, capturedSize)
 	}
-	return originalSize, truncated || originalSize > capturedSize, nil
+	if truncated && originalSize == capturedSize {
+		return 0, false, fmt.Errorf("body is marked truncated but its original and captured sizes are both %d", originalSize)
+	}
+	return originalSize, originalSize > capturedSize, nil
 }
 
 func nonNilBytes(body []byte) []byte {
@@ -181,6 +184,9 @@ func validateBodyMetadata(body []byte, originalSize, capturedSize int64, truncat
 	}
 	if originalSize > capturedSize && !truncated {
 		return fmt.Errorf("body omits bytes but is not marked truncated")
+	}
+	if originalSize == capturedSize && truncated {
+		return fmt.Errorf("body is marked truncated but omits no bytes")
 	}
 	return nil
 }

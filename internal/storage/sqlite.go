@@ -9,8 +9,12 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
+	"runtime"
 	"strconv"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/opemori/graybox-core/internal/recording"
 	_ "modernc.org/sqlite"
@@ -81,15 +85,11 @@ func open(ctx context.Context, path string, readOnly bool) (*Store, error) {
 func openDB(path string, readOnly bool) (*Store, error) {
 	dsn := path
 	if readOnly {
-		absolute, err := filepath.Abs(path)
+		var err error
+		dsn, err = sqliteReadOnlyDSN(path)
 		if err != nil {
-			return nil, fmt.Errorf("resolve recording path: %w", err)
+			return nil, err
 		}
-		location := &url.URL{Scheme: "file", Path: absolute}
-		query := location.Query()
-		query.Set("mode", "ro")
-		location.RawQuery = query.Encode()
-		dsn = location.String()
 	}
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -103,6 +103,32 @@ func openDB(path string, readOnly bool) (*Store, error) {
 		return nil, fmt.Errorf("configure sqlite database: %w", err)
 	}
 	return &Store{db: db, readOnly: readOnly}, nil
+}
+
+func sqliteReadOnlyDSN(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve recording path: %w", err)
+	}
+	return sqliteReadOnlyDSNFromAbsolute(absolute, runtime.GOOS == "windows"), nil
+}
+
+func sqliteReadOnlyDSNFromAbsolute(absolute string, windows bool) string {
+	if windows {
+		absolute = strings.ReplaceAll(absolute, `\`, "/")
+		if len(absolute) >= 3 && isASCIIAlpha(absolute[0]) && absolute[1] == ':' && absolute[2] == '/' {
+			absolute = "/" + absolute
+		}
+	}
+	location := &url.URL{Scheme: "file", Path: absolute}
+	query := location.Query()
+	query.Set("mode", "ro")
+	location.RawQuery = query.Encode()
+	return location.String()
+}
+
+func isASCIIAlpha(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z'
 }
 
 func (s *Store) initialize(ctx context.Context, grayboxVersion string) error {
@@ -145,26 +171,145 @@ func (s *Store) validate(ctx context.Context) error {
 	if version != strconv.Itoa(recording.SchemaVersion) {
 		return fmt.Errorf("%w: got %q, support %d", ErrUnsupportedSchema, version, recording.SchemaVersion)
 	}
-	var tables int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master
-WHERE type = 'table' AND name IN ('metadata', 'exchanges', 'request_headers', 'response_headers', 'request_bodies', 'response_bodies')`).Scan(&tables); err != nil {
-		return fmt.Errorf("%w: cannot inspect tables: %v", ErrInvalidRecording, err)
+	var createdAt, grayboxVersion string
+	if err := s.db.QueryRowContext(ctx, `SELECT value FROM metadata WHERE key = 'created_at'`).Scan(&createdAt); err != nil {
+		return fmt.Errorf("%w: missing creation time", ErrInvalidRecording)
 	}
-	if tables != 6 {
-		return fmt.Errorf("%w: recording schema is incomplete", ErrInvalidRecording)
+	if _, err := time.Parse(time.RFC3339Nano, createdAt); err != nil {
+		return fmt.Errorf("%w: invalid creation time: %v", ErrInvalidRecording, err)
 	}
-	for _, query := range []string{
-		`SELECT proxy_error FROM exchanges LIMIT 0`,
-		`SELECT original_size, captured_size, truncated FROM request_bodies LIMIT 0`,
-		`SELECT original_size, captured_size, truncated FROM response_bodies LIMIT 0`,
+	if err := s.db.QueryRowContext(ctx, `SELECT value FROM metadata WHERE key = 'graybox_version'`).Scan(&grayboxVersion); err != nil || grayboxVersion == "" {
+		return fmt.Errorf("%w: missing Graybox version", ErrInvalidRecording)
+	}
+	for _, table := range schemaV1Tables {
+		if err := s.validateTable(ctx, table); err != nil {
+			return err
+		}
+	}
+	for _, table := range []string{"request_bodies", "response_bodies"} {
+		if err := s.validateBodyConstraints(ctx, table); err != nil {
+			return err
+		}
+	}
+	for _, index := range []indexSpec{
+		{"exchanges_started_at_idx", "started_at"},
+		{"exchanges_method_idx", "request_method"},
+		{"exchanges_status_idx", "response_status"},
 	} {
-		rows, err := s.db.QueryContext(ctx, query)
-		if err != nil {
-			return fmt.Errorf("%w: recording schema is incomplete: %v", ErrInvalidRecording, err)
+		if err := s.validateIndex(ctx, index); err != nil {
+			return err
 		}
-		if err := rows.Close(); err != nil {
-			return fmt.Errorf("%w: inspect recording schema: %v", ErrInvalidRecording, err)
+	}
+	return nil
+}
+
+type tableSpec struct {
+	name    string
+	columns []columnSpec
+}
+
+type columnSpec struct {
+	name       string
+	typeName   string
+	notNull    bool
+	primaryKey int
+}
+
+type indexSpec struct {
+	name   string
+	column string
+}
+
+var schemaV1Tables = []tableSpec{
+	{"metadata", []columnSpec{{"key", "TEXT", false, 1}, {"value", "TEXT", true, 0}}},
+	{"exchanges", []columnSpec{
+		{"id", "INTEGER", false, 1}, {"protocol", "TEXT", true, 0}, {"started_at", "TEXT", true, 0},
+		{"completed_at", "TEXT", true, 0}, {"duration_ns", "INTEGER", true, 0}, {"request_method", "TEXT", true, 0},
+		{"request_url", "TEXT", true, 0}, {"response_status", "INTEGER", true, 0}, {"proxy_error", "TEXT", true, 0},
+	}},
+	{"request_headers", headerColumnSpecs()},
+	{"response_headers", headerColumnSpecs()},
+	{"request_bodies", bodyColumnSpecs()},
+	{"response_bodies", bodyColumnSpecs()},
+}
+
+func headerColumnSpecs() []columnSpec {
+	return []columnSpec{{"exchange_id", "INTEGER", true, 1}, {"name", "TEXT", true, 2}, {"value", "TEXT", true, 0}, {"ordinal", "INTEGER", true, 3}}
+}
+
+func bodyColumnSpecs() []columnSpec {
+	return []columnSpec{{"exchange_id", "INTEGER", false, 1}, {"content", "BLOB", true, 0}, {"original_size", "INTEGER", true, 0}, {"captured_size", "INTEGER", true, 0}, {"truncated", "INTEGER", true, 0}}
+}
+
+func (s *Store) validateTable(ctx context.Context, table tableSpec) error {
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_info(%s)`, table.name))
+	if err != nil {
+		return fmt.Errorf("%w: cannot inspect table %s: %v", ErrInvalidRecording, table.name, err)
+	}
+	defer rows.Close()
+	actual := make([]columnSpec, 0, len(table.columns))
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, typeName string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &typeName, &notNull, &defaultValue, &primaryKey); err != nil {
+			return fmt.Errorf("%w: inspect table %s: %v", ErrInvalidRecording, table.name, err)
 		}
+		if cid != len(actual) || defaultValue.Valid {
+			return fmt.Errorf("%w: table %s does not match schema version 1", ErrInvalidRecording, table.name)
+		}
+		actual = append(actual, columnSpec{name: name, typeName: strings.ToUpper(typeName), notNull: notNull != 0, primaryKey: primaryKey})
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("%w: inspect table %s: %v", ErrInvalidRecording, table.name, err)
+	}
+	if !reflect.DeepEqual(actual, table.columns) {
+		return fmt.Errorf("%w: table %s is missing or does not match schema version 1", ErrInvalidRecording, table.name)
+	}
+	return nil
+}
+
+func (s *Store) validateBodyConstraints(ctx context.Context, table string) error {
+	var definition string
+	if err := s.db.QueryRowContext(ctx, `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`, table).Scan(&definition); err != nil {
+		return fmt.Errorf("%w: cannot inspect table %s", ErrInvalidRecording, table)
+	}
+	compact := strings.NewReplacer(" ", "", "\n", "", "\r", "", "\t", "").Replace(strings.ToUpper(definition))
+	for _, constraint := range []string{
+		"CHECK(CAPTURED_SIZE=LENGTH(CONTENT))",
+		"CHECK(CAPTURED_SIZE<=ORIGINAL_SIZE)",
+		"CHECK((TRUNCATED=0ANDCAPTURED_SIZE=ORIGINAL_SIZE)OR(TRUNCATED=1ANDCAPTURED_SIZE<ORIGINAL_SIZE))",
+	} {
+		if !strings.Contains(compact, constraint) {
+			return fmt.Errorf("%w: table %s has incompatible body metadata constraints", ErrInvalidRecording, table)
+		}
+	}
+	return nil
+}
+
+func (s *Store) validateIndex(ctx context.Context, index indexSpec) error {
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`PRAGMA index_info(%s)`, index.name))
+	if err != nil {
+		return fmt.Errorf("%w: cannot inspect index %s: %v", ErrInvalidRecording, index.name, err)
+	}
+	defer rows.Close()
+	var columns []string
+	for rows.Next() {
+		var sequence, columnID int
+		var name string
+		if err := rows.Scan(&sequence, &columnID, &name); err != nil {
+			return fmt.Errorf("%w: inspect index %s: %v", ErrInvalidRecording, index.name, err)
+		}
+		if sequence != len(columns) {
+			return fmt.Errorf("%w: index %s does not match schema version 1", ErrInvalidRecording, index.name)
+		}
+		columns = append(columns, name)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("%w: inspect index %s: %v", ErrInvalidRecording, index.name, err)
+	}
+	if len(columns) != 1 || columns[0] != index.column {
+		return fmt.Errorf("%w: index %s is missing or does not match schema version 1", ErrInvalidRecording, index.name)
 	}
 	return nil
 }
@@ -230,7 +375,8 @@ CREATE TABLE request_bodies (
     truncated     INTEGER NOT NULL CHECK (truncated IN (0, 1)),
     CHECK (captured_size = length(content)),
     CHECK (captured_size <= original_size),
-    CHECK (truncated = 1 OR captured_size = original_size)
+    CHECK ((truncated = 0 AND captured_size = original_size) OR
+           (truncated = 1 AND captured_size < original_size))
 );
 CREATE TABLE response_bodies (
     exchange_id INTEGER PRIMARY KEY REFERENCES exchanges(id) ON DELETE CASCADE,
@@ -240,7 +386,8 @@ CREATE TABLE response_bodies (
     truncated     INTEGER NOT NULL CHECK (truncated IN (0, 1)),
     CHECK (captured_size = length(content)),
     CHECK (captured_size <= original_size),
-    CHECK (truncated = 1 OR captured_size = original_size)
+    CHECK ((truncated = 0 AND captured_size = original_size) OR
+           (truncated = 1 AND captured_size < original_size))
 );
 CREATE INDEX exchanges_started_at_idx ON exchanges(started_at);
 CREATE INDEX exchanges_method_idx ON exchanges(request_method);
