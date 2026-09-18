@@ -3,15 +3,18 @@ package capture_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/opemori/graybox-core/internal/capture"
+	"github.com/opemori/graybox-core/internal/recording"
 	"github.com/opemori/graybox-core/internal/replay"
 	"github.com/opemori/graybox-core/internal/sanitize"
 	"github.com/opemori/graybox-core/internal/storage"
@@ -19,15 +22,14 @@ import (
 
 func TestProxyRecordsAndRecordedRequestReplays(t *testing.T) {
 	ctx := context.Background()
-	var upstreamHost, forwardedFor, forwardedHost, forwardedProto string
+	var upstreamHost, upstreamURI, forwardedFor, forwardedHost, forwardedProto, removedHop string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upstreamHost = r.Host
+		upstreamURI = r.URL.RequestURI()
 		forwardedFor = r.Header.Get("X-Forwarded-For")
 		forwardedHost = r.Header.Get("X-Forwarded-Host")
 		forwardedProto = r.Header.Get("X-Forwarded-Proto")
-		if r.URL.RequestURI() != "/checkout?attempt=2" {
-			t.Errorf("upstream request URI = %q", r.URL.RequestURI())
-		}
+		removedHop = r.Header.Get("X-Remove-Me")
 		w.Header().Add("X-Repeated", "first")
 		w.Header().Add("X-Repeated", "second")
 		w.Header().Set("Set-Cookie", "secret=one")
@@ -44,10 +46,11 @@ func TestProxyRecordsAndRecordedRequestReplays(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	proxy := httptest.NewServer(capture.NewProxy(upstreamURL, store, func(err error) { t.Errorf("proxy error: %v", err) }))
+	failTest := func(err error) { t.Errorf("proxy error: %v", err) }
+	proxy := httptest.NewServer(capture.NewProxy(upstreamURL, store, capture.ErrorHandlers{Transport: failTest, Persistence: failTest}))
 	defer proxy.Close()
 
-	req, err := http.NewRequest(http.MethodPost, proxy.URL+"/checkout?attempt=2", bytes.NewReader([]byte{9, 8, 0, 7}))
+	req, err := http.NewRequest(http.MethodPost, proxy.URL+"/checkout/a%2Fb?attempt=2", bytes.NewReader([]byte{9, 8, 0, 7}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,6 +60,10 @@ func TestProxyRecordsAndRecordedRequestReplays(t *testing.T) {
 	req.Header.Add("X-Multi", "one")
 	req.Header.Add("X-Multi", "two")
 	req.Header.Set("X-Forwarded-For", "spoofed")
+	req.Header.Set("X-Forwarded-Host", "spoofed.example")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	req.Header.Set("Connection", "X-Remove-Me")
+	req.Header.Set("X-Remove-Me", "spoofed-hop")
 	resp, err := proxy.Client().Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -69,16 +76,31 @@ func TestProxyRecordsAndRecordedRequestReplays(t *testing.T) {
 	if upstreamHost != upstreamURL.Host {
 		t.Fatalf("upstream Host = %q, want %q", upstreamHost, upstreamURL.Host)
 	}
+	if upstreamURI != "/checkout/a%2Fb?attempt=2" {
+		t.Fatalf("upstream request URI = %q", upstreamURI)
+	}
 	if forwardedFor == "" || strings.Contains(forwardedFor, "spoofed") || forwardedHost != "client.example" || forwardedProto != "http" {
 		t.Fatalf("forwarded headers = for %q, host %q, proto %q", forwardedFor, forwardedHost, forwardedProto)
+	}
+	if removedHop != "" {
+		t.Fatalf("upstream received connection-nominated header %q", removedHop)
 	}
 
 	ex, err := store.Get(ctx, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ex.Request.Method != http.MethodPost || ex.Request.URL != "/checkout?attempt=2" || !bytes.Equal(ex.Request.Body, []byte{9, 8, 0, 7}) {
+	if ex.Request.Method != http.MethodPost || ex.Request.URL != "/checkout/a%2Fb?attempt=2" || !bytes.Equal(ex.Request.Body, []byte{9, 8, 0, 7}) {
 		t.Fatalf("recorded request = %#v", ex.Request)
+	}
+	if got := ex.Request.Headers.Get("X-Forwarded-For"); got != forwardedFor || strings.Contains(got, "spoofed") {
+		t.Fatalf("recorded X-Forwarded-For = %q, upstream received %q", got, forwardedFor)
+	}
+	if ex.Request.Headers.Get("X-Forwarded-Host") != forwardedHost || ex.Request.Headers.Get("X-Forwarded-Proto") != forwardedProto {
+		t.Fatalf("recorded forwarding headers = %#v", ex.Request.Headers)
+	}
+	if ex.Request.Headers.Get("Connection") != "" || ex.Request.Headers.Get("X-Remove-Me") != "" {
+		t.Fatalf("recording retained hop-by-hop headers: %#v", ex.Request.Headers)
 	}
 	if ex.Request.Headers.Get("Authorization") != sanitize.RedactedValue || ex.Request.Headers.Get("Cookie") != sanitize.RedactedValue {
 		t.Fatalf("credentials not redacted: %#v", ex.Request.Headers)
@@ -91,10 +113,12 @@ func TestProxyRecordsAndRecordedRequestReplays(t *testing.T) {
 	}
 
 	var replayedBody []byte
-	var replayedAuth string
+	var replayedAuth, replayedForwardedFor, replayedURI string
 	replayTarget := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		replayedBody, _ = io.ReadAll(r.Body)
 		replayedAuth = r.Header.Get("Authorization")
+		replayedForwardedFor = r.Header.Get("X-Forwarded-For")
+		replayedURI = r.URL.RequestURI()
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer replayTarget.Close()
@@ -110,6 +134,12 @@ func TestProxyRecordsAndRecordedRequestReplays(t *testing.T) {
 	if !bytes.Equal(replayedBody, ex.Request.Body) || replayedAuth != "" {
 		t.Fatalf("replayed body/auth = %v/%q", replayedBody, replayedAuth)
 	}
+	if replayedForwardedFor != forwardedFor || strings.Contains(replayedForwardedFor, "spoofed") {
+		t.Fatalf("replayed X-Forwarded-For = %q, recorded %q", replayedForwardedFor, forwardedFor)
+	}
+	if replayedURI != "/checkout/a%2Fb?attempt=2" {
+		t.Fatalf("replayed request URI = %q", replayedURI)
+	}
 }
 
 func TestProxyPersistsTransportFailureDistinctFromUpstream502(t *testing.T) {
@@ -124,7 +154,8 @@ func TestProxyPersistsTransportFailureDistinctFromUpstream502(t *testing.T) {
 	dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	target, _ := url.Parse(dead.URL)
 	dead.Close()
-	proxy := httptest.NewServer(capture.NewProxy(target, store, func(error) {}))
+	proxyHandler := capture.NewProxy(target, store, capture.ErrorHandlers{Transport: func(error) {}})
+	proxy := httptest.NewServer(proxyHandler)
 	resp, err := proxy.Client().Get(proxy.URL + "/unavailable")
 	if err != nil {
 		t.Fatal(err)
@@ -140,13 +171,16 @@ func TestProxyPersistsTransportFailureDistinctFromUpstream502(t *testing.T) {
 	if ex.Response.StatusCode != http.StatusBadGateway || ex.ProxyError == "" {
 		t.Fatalf("transport failure = status %d, proxy error %q", ex.Response.StatusCode, ex.ProxyError)
 	}
+	if proxyHandler.PersistenceFailures() != 0 {
+		t.Fatalf("transport failure counted as %d persistence failures", proxyHandler.PersistenceFailures())
+	}
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 	}))
 	defer upstream.Close()
 	upstreamURL, _ := url.Parse(upstream.URL)
-	proxy = httptest.NewServer(capture.NewProxy(upstreamURL, store, nil))
+	proxy = httptest.NewServer(capture.NewProxy(upstreamURL, store, capture.ErrorHandlers{}))
 	defer proxy.Close()
 	resp, err = proxy.Client().Get(proxy.URL + "/real-502")
 	if err != nil {
@@ -159,6 +193,40 @@ func TestProxyPersistsTransportFailureDistinctFromUpstream502(t *testing.T) {
 	}
 	if ex.Response.StatusCode != http.StatusBadGateway || ex.ProxyError != "" {
 		t.Fatalf("upstream 502 = status %d, proxy error %q", ex.Response.StatusCode, ex.ProxyError)
+	}
+}
+
+func TestProxyDoesNotPersistInboundHeadersWhenNoRequestReachedTransport(t *testing.T) {
+	ctx := context.Background()
+	store, err := storage.Create(ctx, filepath.Join(t.TempDir(), "rejected.graybox"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	target, _ := url.Parse("http://unused.invalid")
+	var transportErrors atomic.Uint64
+	handler := capture.NewProxy(target, store, capture.ErrorHandlers{
+		Transport: func(error) { transportErrors.Add(1) },
+	})
+	request := httptest.NewRequest(http.MethodGet, "http://proxy.invalid/rejected", nil)
+	request.Header.Set("Connection", "Upgrade")
+	request.Header["Upgrade"] = []string{"invalid\x01upgrade"}
+	request.Header.Set("X-Forwarded-For", "spoofed")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadGateway || transportErrors.Load() != 1 {
+		t.Fatalf("response/errors = %d/%d", response.Code, transportErrors.Load())
+	}
+	exchange, err := store.Get(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exchange.ProxyError == "" || len(exchange.Request.Headers) != 0 {
+		t.Fatalf("proxy error/recorded headers = %q/%#v", exchange.ProxyError, exchange.Request.Headers)
+	}
+	if handler.PersistenceFailures() != 0 {
+		t.Fatalf("rejected request counted as persistence failure")
 	}
 }
 
@@ -178,7 +246,7 @@ func TestProxyStreamsBodiesAndPersistsTruncationMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	proxy := httptest.NewServer(capture.NewProxyWithBodyLimit(target, store, 4, nil))
+	proxy := httptest.NewServer(capture.NewProxyWithBodyLimit(target, store, 4, capture.ErrorHandlers{}))
 	defer proxy.Close()
 	resp, err := proxy.Client().Post(proxy.URL+"/large", "application/octet-stream", bytes.NewReader(requestData))
 	if err != nil {
@@ -198,5 +266,43 @@ func TestProxyStreamsBodiesAndPersistsTruncationMetadata(t *testing.T) {
 	}
 	if string(ex.Response.Body) != "abcd" || ex.Response.BodySize != 10 || !ex.Response.BodyTruncated {
 		t.Fatalf("response capture = %#v", ex.Response)
+	}
+}
+
+type failingRecorder struct{ calls atomic.Uint64 }
+
+func (r *failingRecorder) Add(context.Context, recording.Exchange) (int64, error) {
+	r.calls.Add(1)
+	return 0, errors.New("disk full")
+}
+
+func TestProxyContinuesTrafficAndTracksPersistenceFailures(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+	target, _ := url.Parse(upstream.URL)
+	recorder := new(failingRecorder)
+	var transportErrors, persistenceErrors atomic.Uint64
+	handler := capture.NewProxy(target, recorder, capture.ErrorHandlers{
+		Transport:   func(error) { transportErrors.Add(1) },
+		Persistence: func(error) { persistenceErrors.Add(1) },
+	})
+	proxy := httptest.NewServer(handler)
+	defer proxy.Close()
+
+	resp, err := proxy.Client().Get(proxy.URL + "/still-proxied")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("response status = %d", resp.StatusCode)
+	}
+	if recorder.calls.Load() != 1 || handler.PersistenceFailures() != 1 || persistenceErrors.Load() != 1 {
+		t.Fatalf("calls/failures/callbacks = %d/%d/%d", recorder.calls.Load(), handler.PersistenceFailures(), persistenceErrors.Load())
+	}
+	if transportErrors.Load() != 0 {
+		t.Fatalf("persistence failure reported as %d transport errors", transportErrors.Load())
 	}
 }

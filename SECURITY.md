@@ -13,7 +13,9 @@ V0 automatically replaces values in these headers before writing them:
 
 Header matching is case-insensitive and the stored marker is `<REDACTED>`. Replay omits redacted headers rather than sending the marker.
 
-This policy is not exhaustive. In particular, Graybox V0 does not inspect or redact request/response bodies, URL paths or queries, or other potentially sensitive headers. Treat every raw `.graybox` file as potentially sensitive. Review a recording before sharing it, use restrictive filesystem permissions, and avoid committing recordings to source control.
+This policy is not exhaustive. In particular, Graybox V0 does not inspect or redact request/response bodies, URL paths or queries, other potentially sensitive headers, or recorded proxy-error text. Treat every raw `.graybox` file as potentially sensitive. Review a recording before sharing it, use restrictive filesystem permissions, and avoid committing recordings to source control.
+
+Body capture is bounded (10 MiB per request or response by default), but that bound is a resource limit, not a privacy control. Each body stores its captured byte prefix plus `original_size`, `captured_size`, and `truncated`; secrets can occur within the retained prefix. A proxy transport failure is stored as a Graybox-generated 502 with a non-empty `proxy_error`, while an upstream 502 has no proxy error.
 
 Graybox is local-first and never uploads recordings automatically.
 

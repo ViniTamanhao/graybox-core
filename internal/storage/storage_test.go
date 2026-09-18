@@ -5,8 +5,11 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -164,6 +167,60 @@ func TestOpenReadOnlyRejectsWritesAndClosesCleanly(t *testing.T) {
 	}
 }
 
+func TestSQLiteReadOnlyDSNPortablePaths(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		windows  bool
+		expected string
+	}{
+		{
+			name:     "Unix",
+			path:     "/tmp/gray box/capture#1?.graybox",
+			expected: "file:///tmp/gray%20box/capture%231%3F.graybox?mode=ro",
+		},
+		{
+			name:     "Windows drive",
+			path:     `C:\Users\Gray Box\capture#1?.graybox`,
+			windows:  true,
+			expected: "file:///C:/Users/Gray%20Box/capture%231%3F.graybox?mode=ro",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := sqliteReadOnlyDSNFromAbsolute(test.path, test.windows); got != test.expected {
+				t.Fatalf("DSN = %q, want %q", got, test.expected)
+			}
+		})
+	}
+}
+
+func TestOpenReadOnlyWorksWithReadOnlyFilesystemPermissions(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "filesystem-readonly.graybox")
+	store, err := Create(ctx, path, "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o400); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+	store, err = OpenReadOnly(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.List(ctx, recording.Filter{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSchemaVersionValidation(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "future.graybox")
@@ -197,8 +254,57 @@ func TestIncompleteSchemaIsInvalid(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = Open(ctx, path)
-	if !errors.Is(err, ErrInvalidRecording) {
+	if !errors.Is(err, ErrInvalidRecording) || !strings.Contains(err.Error(), "response_bodies") {
 		t.Fatalf("Open error = %v, want ErrInvalidRecording", err)
+	}
+}
+
+func TestMissingSchemaIndexIsInvalid(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "missing-index.graybox")
+	store, err := Create(ctx, path, "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`DROP INDEX exchanges_method_idx`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = OpenReadOnly(ctx, path)
+	if !errors.Is(err, ErrInvalidRecording) || !strings.Contains(err.Error(), "exchanges_method_idx") {
+		t.Fatalf("OpenReadOnly error = %v", err)
+	}
+}
+
+func TestPreReleaseBodyConstraintIsInvalid(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "prototype.graybox")
+	store, err := openDB(path, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prototypeSchema := strings.ReplaceAll(schemaV1,
+		`CHECK ((truncated = 0 AND captured_size = original_size) OR
+           (truncated = 1 AND captured_size < original_size))`,
+		`CHECK (truncated = 1 OR captured_size = original_size)`)
+	if _, err := store.db.ExecContext(ctx, prototypeSchema); err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range map[string]string{
+		"format": "graybox", "schema_version": "1", "created_at": nowUTC(), "graybox_version": "prototype",
+	} {
+		if _, err := store.db.ExecContext(ctx, `INSERT INTO metadata(key, value) VALUES (?, ?)`, key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = OpenReadOnly(ctx, path)
+	if !errors.Is(err, ErrInvalidRecording) || !strings.Contains(err.Error(), "incompatible body metadata constraints") {
+		t.Fatalf("OpenReadOnly error = %v", err)
 	}
 }
 
@@ -212,6 +318,61 @@ func TestCreateDoesNotOverwrite(t *testing.T) {
 	defer store.Close()
 	if _, err := Create(ctx, path, "dev"); err == nil {
 		t.Fatal("second Create unexpectedly succeeded")
+	}
+}
+
+func TestCreateUsesRestrictivePermissions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "private.graybox")
+	store, err := Create(context.Background(), path, "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits are not enforced on Windows")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("recording permissions = %o, want 600", got)
+	}
+}
+
+func TestAddRollsBackWholeExchangeOnBodyMetadataFailure(t *testing.T) {
+	ctx := context.Background()
+	store, err := Create(ctx, filepath.Join(t.TempDir(), "atomic.graybox"), "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Now().UTC()
+	_, err = store.Add(ctx, recording.Exchange{
+		Protocol:  "http",
+		StartedAt: now,
+		EndedAt:   now,
+		Request:   recording.Request{Method: http.MethodPost, URL: "/", Body: []byte("complete")},
+		Response:  recording.Response{StatusCode: http.StatusOK, Body: []byte("too-large"), BodySize: 1},
+	})
+	if err == nil || !strings.Contains(err.Error(), "response body metadata") {
+		t.Fatalf("Add error = %v", err)
+	}
+	items, err := store.List(ctx, recording.Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("partial exchange committed: %#v", items)
+	}
+}
+
+func TestBodyMetadataRejectsContradictoryTruncation(t *testing.T) {
+	if _, _, err := bodyMetadata([]byte("all"), 3, true); err == nil {
+		t.Fatal("body marked truncated with equal sizes was accepted")
+	}
+	if err := validateBodyMetadata([]byte("all"), 3, 3, true); err == nil {
+		t.Fatal("persisted body marked truncated with equal sizes was accepted")
 	}
 }
 

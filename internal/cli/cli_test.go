@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -79,6 +83,79 @@ func TestRecordDefaultListenIsLoopback(t *testing.T) {
 	}
 }
 
+type failingRecordingStore struct {
+	addCalls atomic.Uint64
+	closed   atomic.Bool
+}
+
+func (s *failingRecordingStore) Add(context.Context, recording.Exchange) (int64, error) {
+	s.addCalls.Add(1)
+	return 0, errors.New("simulated persistence failure")
+}
+
+func (*failingRecordingStore) SetMetadata(context.Context, string, string) error { return nil }
+func (s *failingRecordingStore) Close() error {
+	s.closed.Store(true)
+	return nil
+}
+
+func TestRecordShutdownReportsPersistenceFailuresAndFails(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := new(failingRecordingStore)
+	var stdout, stderr bytes.Buffer
+	app := App{
+		Stdout: &stdout,
+		Stderr: &stderr,
+		createRecording: func(context.Context, string, string) (recordingStore, error) {
+			return store, nil
+		},
+		listen: func(string, string) (net.Listener, error) { return listener, nil },
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan int, 1)
+	go func() {
+		done <- app.Run(ctx, []string{"record", "--listen", "127.0.0.1:0", "--target", upstream.URL, "--output", "ignored.graybox", "--json"})
+	}()
+
+	for range 2 {
+		resp, err := http.Get("http://" + listener.Addr().String() + "/persist-me")
+		if err != nil {
+			cancel()
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusNoContent {
+			cancel()
+			t.Fatalf("proxied response status = %d", resp.StatusCode)
+		}
+	}
+	cancel()
+	select {
+	case code := <-done:
+		if code != ExitInternal {
+			t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("record command did not shut down")
+	}
+	if store.addCalls.Load() != 2 || !store.closed.Load() {
+		t.Fatalf("add calls/closed = %d/%v", store.addCalls.Load(), store.closed.Load())
+	}
+	if !strings.Contains(stderr.String(), "Recording completed with errors:\n2 exchanges could not be persisted") {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+	if !json.Valid(stdout.Bytes()) || strings.Contains(stdout.String(), "Recording completed") {
+		t.Fatalf("JSON stdout = %q", stdout.String())
+	}
+}
+
 func TestReplayProtectsSavedRemoteTarget(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "remote.graybox")
@@ -109,6 +186,12 @@ func TestReplayProtectsSavedRemoteTarget(t *testing.T) {
 			t.Errorf("target %q local = false, err %v", raw, err)
 		}
 	}
+	for _, raw := range []string{"http://localhost.example.com", "http://127.0.0.1.example.com", "http://192.0.2.1"} {
+		target, err := parseTarget(raw)
+		if err != nil || isLoopbackTarget(target) {
+			t.Errorf("target %q local = true, err %v", raw, err)
+		}
+	}
 }
 
 func TestVersionFallsBackToModuleBuildInfo(t *testing.T) {
@@ -126,6 +209,25 @@ func TestVersionFallsBackToModuleBuildInfo(t *testing.T) {
 	code = (App{Stdout: &stdout, Stderr: &stderr, Version: "v9.9.9"}).Run(context.Background(), []string{"version"})
 	if code != ExitSuccess || stdout.String() != "graybox v9.9.9\n" {
 		t.Fatalf("ldflags override exit/stdout = %d/%q", code, stdout.String())
+	}
+}
+
+func TestVersionJSONIsStableAndValid(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := (App{Stdout: &stdout, Stderr: &stderr, Version: "v0.1.0"}).Run(context.Background(), []string{"version", "--json"})
+	if code != ExitSuccess || stdout.String() != "{\"version\":\"v0.1.0\"}\n" || !json.Valid(stdout.Bytes()) || stderr.Len() != 0 {
+		t.Fatalf("exit/stdout/stderr = %d/%q/%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestAllHelpCommands(t *testing.T) {
+	commands := [][]string{{"help"}, {"help", "record"}, {"help", "ls"}, {"help", "show"}, {"help", "replay"}, {"help", "version"}}
+	for _, args := range commands {
+		var stdout, stderr bytes.Buffer
+		code := (App{Stdout: &stdout, Stderr: &stderr}).Run(context.Background(), args)
+		if code != ExitSuccess || stdout.Len() == 0 || stderr.Len() != 0 {
+			t.Errorf("args/exit/stdout/stderr = %v/%d/%q/%q", args, code, stdout.String(), stderr.String())
+		}
 	}
 }
 

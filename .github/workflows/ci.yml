@@ -21,6 +21,10 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Format
+        run: go fmt ./...
+      - name: Verify formatting
+        run: git diff --exit-code
       - name: Test
         run: go test ./...
       - name: Vet
