@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/opemori/graybox-core/internal/cli"
+	"github.com/ViniTamanhao/graybox-core/internal/cli"
 )
 
 // version can be replaced at build time with:

@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/opemori/graybox-core/internal/storage"
+	"github.com/ViniTamanhao/graybox-core/internal/storage"
 )
 
 const (

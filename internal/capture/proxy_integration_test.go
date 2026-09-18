@@ -14,11 +14,11 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/opemori/graybox-core/internal/capture"
-	"github.com/opemori/graybox-core/internal/recording"
-	"github.com/opemori/graybox-core/internal/replay"
-	"github.com/opemori/graybox-core/internal/sanitize"
-	"github.com/opemori/graybox-core/internal/storage"
+	"github.com/ViniTamanhao/graybox-core/internal/capture"
+	"github.com/ViniTamanhao/graybox-core/internal/recording"
+	"github.com/ViniTamanhao/graybox-core/internal/replay"
+	"github.com/ViniTamanhao/graybox-core/internal/sanitize"
+	"github.com/ViniTamanhao/graybox-core/internal/storage"
 )
 
 func TestProxyRecordsAndRecordedRequestReplays(t *testing.T) {

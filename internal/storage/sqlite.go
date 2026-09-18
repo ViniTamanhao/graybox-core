@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/opemori/graybox-core/internal/recording"
+	"github.com/ViniTamanhao/graybox-core/internal/recording"
 	_ "modernc.org/sqlite"
 )
 

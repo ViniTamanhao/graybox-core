@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/opemori/graybox-core/internal/recording"
-	"github.com/opemori/graybox-core/internal/storage"
+	"github.com/ViniTamanhao/graybox-core/internal/recording"
+	"github.com/ViniTamanhao/graybox-core/internal/storage"
 )
 
 func TestListAndShowJSONAreValidAndSharePersistedResults(t *testing.T) {

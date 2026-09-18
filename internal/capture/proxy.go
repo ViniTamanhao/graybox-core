@@ -14,8 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/opemori/graybox-core/internal/recording"
-	"github.com/opemori/graybox-core/internal/sanitize"
+	"github.com/ViniTamanhao/graybox-core/internal/recording"
+	"github.com/ViniTamanhao/graybox-core/internal/sanitize"
 )
 
 // DefaultBodyCaptureLimit bounds the bytes retained for each request and

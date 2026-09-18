@@ -5,7 +5,7 @@ Graybox is intentionally a small API recorder and debugger. Focused issues and p
 ## Development setup
 
 ```bash
-git clone https://github.com/opemori/graybox-core.git
+git clone https://github.com/ViniTamanhao/graybox-core.git
 cd graybox-core
 go test ./...
 go vet ./...

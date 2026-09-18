@@ -8,8 +8,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/opemori/graybox-core/internal/recording"
-	"github.com/opemori/graybox-core/internal/storage"
+	"github.com/ViniTamanhao/graybox-core/internal/recording"
+	"github.com/ViniTamanhao/graybox-core/internal/storage"
 )
 
 type listItemJSON struct {

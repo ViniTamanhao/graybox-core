@@ -10,7 +10,7 @@ import (
 	"net/http/httputil"
 	"testing"
 
-	"github.com/opemori/graybox-core/internal/recording"
+	"github.com/ViniTamanhao/graybox-core/internal/recording"
 )
 
 func TestCaptureReadCloserCompletion(t *testing.T) {

@@ -13,7 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/opemori/graybox-core/internal/recording"
+	"github.com/ViniTamanhao/graybox-core/internal/recording"
 )
 
 type bodyJSON struct {

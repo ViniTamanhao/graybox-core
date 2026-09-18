@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/opemori/graybox-core/internal/capture"
-	"github.com/opemori/graybox-core/internal/storage"
+	"github.com/ViniTamanhao/graybox-core/internal/capture"
+	"github.com/ViniTamanhao/graybox-core/internal/storage"
 )
 
 const defaultListenAddress = "127.0.0.1:9000"

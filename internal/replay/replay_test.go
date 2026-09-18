@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/opemori/graybox-core/internal/recording"
-	"github.com/opemori/graybox-core/internal/sanitize"
+	"github.com/ViniTamanhao/graybox-core/internal/recording"
+	"github.com/ViniTamanhao/graybox-core/internal/sanitize"
 )
 
 type fakeSource struct{ exchange recording.Exchange }

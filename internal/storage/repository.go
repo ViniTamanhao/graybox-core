@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/opemori/graybox-core/internal/recording"
+	"github.com/ViniTamanhao/graybox-core/internal/recording"
 )
 
 var ErrNotFound = errors.New("exchange not found")

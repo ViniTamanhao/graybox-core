@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/opemori/graybox-core/internal/storage"
+	"github.com/ViniTamanhao/graybox-core/internal/storage"
 )
 
 func (a App) runShow(ctx context.Context, args []string) (int, error) {

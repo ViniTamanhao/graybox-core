@@ -1,4 +1,4 @@
-module github.com/opemori/graybox-core
+module github.com/ViniTamanhao/graybox-core
 
 go 1.26.0
 

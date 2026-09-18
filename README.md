@@ -38,7 +38,7 @@ Graybox is a focused local development tool—not an APM, packet analyzer, produ
 Graybox requires Go 1.26.0 or newer to build from source.
 
 ```bash
-go install github.com/opemori/graybox-core/cmd/graybox@latest
+go install github.com/ViniTamanhao/graybox-core/cmd/graybox@latest
 ```
 
 For a repository checkout:

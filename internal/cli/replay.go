@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/opemori/graybox-core/internal/replay"
-	"github.com/opemori/graybox-core/internal/storage"
+	"github.com/ViniTamanhao/graybox-core/internal/replay"
+	"github.com/ViniTamanhao/graybox-core/internal/storage"
 )
 
 type replayItemJSON struct {
