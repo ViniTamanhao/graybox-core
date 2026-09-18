@@ -36,7 +36,7 @@ func (a App) runRecord(ctx context.Context, args []string) (int, error) {
 
 Proxy HTTP traffic to an upstream target and record it in a .graybox file.
 Traffic continues to stream when bounded body captures are truncated. If any
-completed exchange cannot be persisted, shutdown reports the loss and fails.
+observed exchange cannot be persisted, shutdown reports the loss and fails.
 
 Options:
   --listen ADDRESS   listen address (default 127.0.0.1:9000)

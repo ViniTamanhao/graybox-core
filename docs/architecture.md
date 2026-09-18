@@ -12,17 +12,17 @@ Graybox reverse proxy -----> recording.graybox
 upstream API
 ```
 
-The proxy receives ordinary HTTP requests on an explicit address that defaults to `127.0.0.1:9000`. It forwards each request with Go's `net/http` reverse-proxy rewrite API, sets the upstream `Host` to the configured target, removes inbound forwarding and hop-by-hop headers, and explicitly constructs `X-Forwarded-For`, `X-Forwarded-Host`, and `X-Forwarded-Proto` from the received connection. Graybox captures the effective outbound header map passed to the HTTP transport, not the untrusted inbound map, then applies redaction before persistence. It captures the observed response and commits the completed exchange to SQLite.
+The proxy receives ordinary HTTP requests on an explicit address that defaults to `127.0.0.1:9000`. It forwards each request with Go's `net/http` reverse-proxy rewrite API, sets the upstream `Host` to the configured target, removes inbound forwarding and hop-by-hop headers, and explicitly constructs `X-Forwarded-For`, `X-Forwarded-Host`, and `X-Forwarded-Proto` from the received connection. Graybox captures the effective outbound header map passed to the HTTP transport, not the untrusted inbound map, then applies redaction before persistence. It deliberately preserves the incoming raw query representation for debugging fidelity. It captures the observed response and commits the exchange to SQLite, including partial responses when streaming aborts after it starts.
 
-Request and response bodies stream through the proxy. A bounded prefix is retained for recording (10 MiB per body by default), while counters preserve the observed original size and mark truncation explicitly. A transport failure produces a client-facing 502 and a non-empty recorded proxy error; an upstream 502 has no proxy error.
+Request and response bodies stream through the proxy. A bounded prefix is retained for recording (10 MiB per body by default), while counters preserve the number of bytes Graybox observed. `truncated` records whether the capture limit omitted observed bytes, and `complete` records whether the HTTP body stream finished normally; neither state implies the other. A transport or response-stream failure produces a non-empty recorded proxy error. A Graybox-generated transport response uses status 502, while an upstream 502 has no proxy error.
 
 ## Responsibilities
 
 - `internal/recording` defines the exchange, request, response, timing, filter, and summary domain values. It contains no storage or CLI behavior.
-- `internal/capture` owns reverse proxying and converts observed HTTP traffic into completed domain exchanges.
+- `internal/capture` owns reverse proxying and converts observed HTTP traffic into domain exchanges, including interrupted streams.
 - `internal/sanitize` owns the small, deterministic V0 header-redaction policy.
 - `internal/storage` owns schema creation, validation, transactional writes, and reads from a `.graybox` SQLite database.
-- `internal/replay` reconstructs requests, replaces the target, removes unsafe transport headers and redacted credentials, and executes requests sequentially with a dedicated transport. It disables implicit compression behavior, does not follow redirects, and refuses truncated request bodies.
+- `internal/replay` reconstructs requests, replaces the target, removes unsafe transport headers and redacted credentials, and executes requests sequentially with a dedicated transport. It disables implicit compression behavior, does not follow redirects, and refuses truncated or incomplete request bodies.
 - `internal/cli` parses commands and renders domain results for humans or as deliberate JSON contracts.
 - `cmd/graybox` handles process signals, build-time version injection, and exit status.
 

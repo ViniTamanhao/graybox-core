@@ -66,20 +66,44 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, exchange.Protocol,
 	if err := insertHeaders(ctx, tx, "response_headers", id, exchange.Response.Headers); err != nil {
 		return 0, err
 	}
-	requestSize, requestTruncated, err := bodyMetadata(exchange.Request.Body, exchange.Request.BodySize, exchange.Request.BodyTruncated)
+	requestCapturedSize, err := bodyMetadata(
+		exchange.Request.Body,
+		exchange.Request.ObservedSize,
+		exchange.Request.Truncated,
+	)
 	if err != nil {
 		return 0, fmt.Errorf("request body metadata: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO request_bodies(exchange_id, content, original_size, captured_size, truncated) VALUES (?, ?, ?, ?, ?)`,
-		id, nonNilBytes(exchange.Request.Body), requestSize, len(exchange.Request.Body), requestTruncated); err != nil {
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO request_bodies(exchange_id, content, observed_size, captured_size, truncated, complete) VALUES (?, ?, ?, ?, ?, ?)`,
+		id,
+		nonNilBytes(exchange.Request.Body),
+		exchange.Request.ObservedSize,
+		requestCapturedSize,
+		exchange.Request.Truncated,
+		exchange.Request.Complete,
+	); err != nil {
 		return 0, fmt.Errorf("insert request body: %w", err)
 	}
-	responseSize, responseTruncated, err := bodyMetadata(exchange.Response.Body, exchange.Response.BodySize, exchange.Response.BodyTruncated)
+	responseCapturedSize, err := bodyMetadata(
+		exchange.Response.Body,
+		exchange.Response.ObservedSize,
+		exchange.Response.Truncated,
+	)
 	if err != nil {
 		return 0, fmt.Errorf("response body metadata: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO response_bodies(exchange_id, content, original_size, captured_size, truncated) VALUES (?, ?, ?, ?, ?)`,
-		id, nonNilBytes(exchange.Response.Body), responseSize, len(exchange.Response.Body), responseTruncated); err != nil {
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO response_bodies(exchange_id, content, observed_size, captured_size, truncated, complete) VALUES (?, ?, ?, ?, ?, ?)`,
+		id,
+		nonNilBytes(exchange.Response.Body),
+		exchange.Response.ObservedSize,
+		responseCapturedSize,
+		exchange.Response.Truncated,
+		exchange.Response.Complete,
+	); err != nil {
 		return 0, fmt.Errorf("insert response body: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -88,18 +112,12 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, exchange.Protocol,
 	return id, nil
 }
 
-func bodyMetadata(body []byte, originalSize int64, truncated bool) (int64, bool, error) {
+func bodyMetadata(body []byte, observedSize int64, truncated bool) (int64, error) {
 	capturedSize := int64(len(body))
-	if originalSize == 0 && capturedSize > 0 {
-		originalSize = capturedSize
+	if err := validateBodyMetadata(body, observedSize, capturedSize, truncated); err != nil {
+		return 0, err
 	}
-	if originalSize < capturedSize {
-		return 0, false, fmt.Errorf("original size %d is smaller than captured size %d", originalSize, capturedSize)
-	}
-	if truncated && originalSize == capturedSize {
-		return 0, false, fmt.Errorf("body is marked truncated but its original and captured sizes are both %d", originalSize)
-	}
-	return originalSize, originalSize > capturedSize, nil
+	return capturedSize, nil
 }
 
 func nonNilBytes(body []byte) []byte {
@@ -126,7 +144,7 @@ func insertHeaders(ctx context.Context, tx *sql.Tx, table string, id int64, head
 	return nil
 }
 
-// Get returns one complete recorded exchange.
+// Get returns one recorded exchange.
 func (s *Store) Get(ctx context.Context, id int64) (recording.Exchange, error) {
 	var ex recording.Exchange
 	var started, ended string
@@ -157,35 +175,63 @@ FROM exchanges WHERE id = ?`, id).Scan(&ex.ID, &ex.Protocol, &started, &ended, &
 		return ex, err
 	}
 	var requestCapturedSize int64
-	if err := s.db.QueryRowContext(ctx, `SELECT content, original_size, captured_size, truncated FROM request_bodies WHERE exchange_id = ?`, id).
-		Scan(&ex.Request.Body, &ex.Request.BodySize, &requestCapturedSize, &ex.Request.BodyTruncated); err != nil {
+	if err := s.db.QueryRowContext(
+		ctx,
+		`SELECT content, observed_size, captured_size, truncated, complete FROM request_bodies WHERE exchange_id = ?`,
+		id,
+	).Scan(
+		&ex.Request.Body,
+		&ex.Request.ObservedSize,
+		&requestCapturedSize,
+		&ex.Request.Truncated,
+		&ex.Request.Complete,
+	); err != nil {
 		return ex, fmt.Errorf("read request body: %w", err)
 	}
-	if err := validateBodyMetadata(ex.Request.Body, ex.Request.BodySize, requestCapturedSize, ex.Request.BodyTruncated); err != nil {
+	if err := validateBodyMetadata(
+		ex.Request.Body,
+		ex.Request.ObservedSize,
+		requestCapturedSize,
+		ex.Request.Truncated,
+	); err != nil {
 		return ex, fmt.Errorf("%w: request body metadata: %v", ErrInvalidRecording, err)
 	}
 	var responseCapturedSize int64
-	if err := s.db.QueryRowContext(ctx, `SELECT content, original_size, captured_size, truncated FROM response_bodies WHERE exchange_id = ?`, id).
-		Scan(&ex.Response.Body, &ex.Response.BodySize, &responseCapturedSize, &ex.Response.BodyTruncated); err != nil {
+	if err := s.db.QueryRowContext(
+		ctx,
+		`SELECT content, observed_size, captured_size, truncated, complete FROM response_bodies WHERE exchange_id = ?`,
+		id,
+	).Scan(
+		&ex.Response.Body,
+		&ex.Response.ObservedSize,
+		&responseCapturedSize,
+		&ex.Response.Truncated,
+		&ex.Response.Complete,
+	); err != nil {
 		return ex, fmt.Errorf("read response body: %w", err)
 	}
-	if err := validateBodyMetadata(ex.Response.Body, ex.Response.BodySize, responseCapturedSize, ex.Response.BodyTruncated); err != nil {
+	if err := validateBodyMetadata(
+		ex.Response.Body,
+		ex.Response.ObservedSize,
+		responseCapturedSize,
+		ex.Response.Truncated,
+	); err != nil {
 		return ex, fmt.Errorf("%w: response body metadata: %v", ErrInvalidRecording, err)
 	}
 	return ex, nil
 }
 
-func validateBodyMetadata(body []byte, originalSize, capturedSize int64, truncated bool) error {
+func validateBodyMetadata(body []byte, observedSize, capturedSize int64, truncated bool) error {
 	if capturedSize != int64(len(body)) {
 		return fmt.Errorf("captured size %d does not match BLOB length %d", capturedSize, len(body))
 	}
-	if originalSize < capturedSize {
-		return fmt.Errorf("original size %d is smaller than captured size %d", originalSize, capturedSize)
+	if observedSize < capturedSize {
+		return fmt.Errorf("observed size %d is smaller than captured size %d", observedSize, capturedSize)
 	}
-	if originalSize > capturedSize && !truncated {
+	if observedSize > capturedSize && !truncated {
 		return fmt.Errorf("body omits bytes but is not marked truncated")
 	}
-	if originalSize == capturedSize && truncated {
+	if observedSize == capturedSize && truncated {
 		return fmt.Errorf("body is marked truncated but omits no bytes")
 	}
 	return nil

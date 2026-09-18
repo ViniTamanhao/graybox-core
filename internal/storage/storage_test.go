@@ -36,10 +36,28 @@ func TestCreateAddGetAndFilter(t *testing.T) {
 
 	started := time.Date(2026, 1, 2, 3, 4, 5, 6, time.UTC)
 	exchange := recording.Exchange{
-		Protocol: "http", StartedAt: started, EndedAt: started.Add(1250 * time.Microsecond), Duration: 1250 * time.Microsecond,
-		Request: recording.Request{Method: "POST", URL: "/items?q=one%20two", Headers: http.Header{
-			"X-Repeated": {"first", "second"}, "Content-Type": {"application/octet-stream"}}, Body: []byte{0, 1, 2, 255}},
-		Response: recording.Response{StatusCode: 201, Headers: http.Header{"Set-Cookie": {"<REDACTED>", "<REDACTED>"}}, Body: []byte{9, 0, 8}},
+		Protocol:  "http",
+		StartedAt: started,
+		EndedAt:   started.Add(1250 * time.Microsecond),
+		Duration:  1250 * time.Microsecond,
+		Request: recording.Request{
+			Method: "POST",
+			URL:    "/items?q=one%20two",
+			Headers: http.Header{
+				"X-Repeated":   {"first", "second"},
+				"Content-Type": {"application/octet-stream"},
+			},
+			Body:         []byte{0, 1, 2, 255},
+			ObservedSize: 4,
+			Complete:     true,
+		},
+		Response: recording.Response{
+			StatusCode:   201,
+			Headers:      http.Header{"Set-Cookie": {"<REDACTED>", "<REDACTED>"}},
+			Body:         []byte{9, 0, 8},
+			ObservedSize: 3,
+			Complete:     true,
+		},
 	}
 	id, err := store.Add(ctx, exchange)
 	if err != nil {
@@ -56,7 +74,8 @@ func TestCreateAddGetAndFilter(t *testing.T) {
 	if !bytes.Equal(got.Request.Body, exchange.Request.Body) || !bytes.Equal(got.Response.Body, exchange.Response.Body) {
 		t.Fatal("binary bodies were not preserved")
 	}
-	if got.Request.BodySize != int64(len(exchange.Request.Body)) || got.Request.BodyTruncated || got.Response.BodySize != int64(len(exchange.Response.Body)) {
+	if got.Request.ObservedSize != int64(len(exchange.Request.Body)) || got.Request.Truncated || !got.Request.Complete ||
+		got.Response.ObservedSize != int64(len(exchange.Response.Body)) || got.Response.Truncated || !got.Response.Complete {
 		t.Fatalf("body metadata changed: request=%#v response=%#v", got.Request, got.Response)
 	}
 	if !reflect.DeepEqual(got.Request.Headers.Values("X-Repeated"), []string{"first", "second"}) {
@@ -94,6 +113,53 @@ func TestCreateAddGetAndFilter(t *testing.T) {
 	}
 }
 
+func TestBodyStateRoundTripsIndependently(t *testing.T) {
+	ctx := context.Background()
+	store, err := Create(ctx, filepath.Join(t.TempDir(), "body-state.graybox"), "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	now := time.Now().UTC()
+	id, err := store.Add(ctx, recording.Exchange{
+		Protocol:  "http",
+		StartedAt: now,
+		EndedAt:   now,
+		Request: recording.Request{
+			Method:       http.MethodPost,
+			URL:          "/truncated",
+			Body:         []byte("prefix"),
+			ObservedSize: 12,
+			Truncated:    true,
+			Complete:     true,
+		},
+		Response: recording.Response{
+			StatusCode:   http.StatusOK,
+			Body:         []byte("partial"),
+			ObservedSize: 7,
+			Truncated:    false,
+			Complete:     false,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Request.ObservedSize != 12 || len(got.Request.Body) != 6 ||
+		!got.Request.Truncated || !got.Request.Complete {
+		t.Fatalf("request body state = %#v", got.Request)
+	}
+	if got.Response.ObservedSize != 7 || len(got.Response.Body) != 7 ||
+		got.Response.Truncated || got.Response.Complete {
+		t.Fatalf("response body state = %#v", got.Response)
+	}
+}
+
 func TestListMatchesEscapedPathsWithoutDecoding(t *testing.T) {
 	ctx := context.Background()
 	store, err := Create(ctx, filepath.Join(t.TempDir(), "escaped.graybox"), "dev")
@@ -103,8 +169,17 @@ func TestListMatchesEscapedPathsWithoutDecoding(t *testing.T) {
 	defer store.Close()
 	now := time.Now().UTC()
 	for _, requestURL := range []string{"/users/a%2Fb?view=1", "/users/a/b?view=1"} {
-		_, err := store.Add(ctx, recording.Exchange{Protocol: "http", StartedAt: now, EndedAt: now,
-			Request: recording.Request{Method: http.MethodGet, URL: requestURL}, Response: recording.Response{StatusCode: http.StatusOK}})
+		_, err := store.Add(ctx, recording.Exchange{
+			Protocol:  "http",
+			StartedAt: now,
+			EndedAt:   now,
+			Request: recording.Request{
+				Method:   http.MethodGet,
+				URL:      requestURL,
+				Complete: true,
+			},
+			Response: recording.Response{StatusCode: http.StatusOK, Complete: true},
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -127,8 +202,17 @@ func TestListOrdersByStartedAtThenID(t *testing.T) {
 	defer store.Close()
 	now := time.Now().UTC()
 	for _, started := range []time.Time{now.Add(time.Second), now} {
-		_, err := store.Add(ctx, recording.Exchange{Protocol: "http", StartedAt: started, EndedAt: started,
-			Request: recording.Request{Method: http.MethodGet, URL: "/"}, Response: recording.Response{StatusCode: http.StatusOK}})
+		_, err := store.Add(ctx, recording.Exchange{
+			Protocol:  "http",
+			StartedAt: started,
+			EndedAt:   started,
+			Request: recording.Request{
+				Method:   http.MethodGet,
+				URL:      "/",
+				Complete: true,
+			},
+			Response: recording.Response{StatusCode: http.StatusOK, Complete: true},
+		})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -285,10 +369,12 @@ func TestPreReleaseBodyConstraintIsInvalid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prototypeSchema := strings.ReplaceAll(schemaV1,
-		`CHECK ((truncated = 0 AND captured_size = original_size) OR
-           (truncated = 1 AND captured_size < original_size))`,
-		`CHECK (truncated = 1 OR captured_size = original_size)`)
+	prototypeSchema := strings.ReplaceAll(
+		schemaV1,
+		`CHECK ((truncated = 0 AND captured_size = observed_size) OR
+           (truncated = 1 AND captured_size < observed_size))`,
+		`CHECK (truncated = 1 OR captured_size = observed_size)`,
+	)
 	if _, err := store.db.ExecContext(ctx, prototypeSchema); err != nil {
 		t.Fatal(err)
 	}
@@ -352,8 +438,19 @@ func TestAddRollsBackWholeExchangeOnBodyMetadataFailure(t *testing.T) {
 		Protocol:  "http",
 		StartedAt: now,
 		EndedAt:   now,
-		Request:   recording.Request{Method: http.MethodPost, URL: "/", Body: []byte("complete")},
-		Response:  recording.Response{StatusCode: http.StatusOK, Body: []byte("too-large"), BodySize: 1},
+		Request: recording.Request{
+			Method:       http.MethodPost,
+			URL:          "/",
+			Body:         []byte("complete"),
+			ObservedSize: 8,
+			Complete:     true,
+		},
+		Response: recording.Response{
+			StatusCode:   http.StatusOK,
+			Body:         []byte("too-large"),
+			ObservedSize: 1,
+			Complete:     true,
+		},
 	})
 	if err == nil || !strings.Contains(err.Error(), "response body metadata") {
 		t.Fatalf("Add error = %v", err)
@@ -368,7 +465,7 @@ func TestAddRollsBackWholeExchangeOnBodyMetadataFailure(t *testing.T) {
 }
 
 func TestBodyMetadataRejectsContradictoryTruncation(t *testing.T) {
-	if _, _, err := bodyMetadata([]byte("all"), 3, true); err == nil {
+	if _, err := bodyMetadata([]byte("all"), 3, true); err == nil {
 		t.Fatal("body marked truncated with equal sizes was accepted")
 	}
 	if err := validateBodyMetadata([]byte("all"), 3, 3, true); err == nil {
@@ -384,9 +481,22 @@ func TestEmptyBodiesAreStoredAsZeroLengthBlobs(t *testing.T) {
 	}
 	defer store.Close()
 	now := time.Now().UTC()
-	id, err := store.Add(ctx, recording.Exchange{Protocol: "http", StartedAt: now, EndedAt: now,
-		Request:  recording.Request{Method: http.MethodGet, URL: "/empty", Headers: make(http.Header)},
-		Response: recording.Response{StatusCode: http.StatusNoContent, Headers: make(http.Header)}})
+	id, err := store.Add(ctx, recording.Exchange{
+		Protocol:  "http",
+		StartedAt: now,
+		EndedAt:   now,
+		Request: recording.Request{
+			Method:   http.MethodGet,
+			URL:      "/empty",
+			Headers:  make(http.Header),
+			Complete: true,
+		},
+		Response: recording.Response{
+			StatusCode: http.StatusNoContent,
+			Headers:    make(http.Header),
+			Complete:   true,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -50,7 +51,12 @@ func TestProxyRecordsAndRecordedRequestReplays(t *testing.T) {
 	proxy := httptest.NewServer(capture.NewProxy(upstreamURL, store, capture.ErrorHandlers{Transport: failTest, Persistence: failTest}))
 	defer proxy.Close()
 
-	req, err := http.NewRequest(http.MethodPost, proxy.URL+"/checkout/a%2Fb?attempt=2", bytes.NewReader([]byte{9, 8, 0, 7}))
+	const requestURI = "/checkout/a%2Fb?attempt=2;mode=raw&encoded=%2f%2F&attempt=3"
+	req, err := http.NewRequest(
+		http.MethodPost,
+		proxy.URL+requestURI,
+		bytes.NewReader([]byte{9, 8, 0, 7}),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +82,7 @@ func TestProxyRecordsAndRecordedRequestReplays(t *testing.T) {
 	if upstreamHost != upstreamURL.Host {
 		t.Fatalf("upstream Host = %q, want %q", upstreamHost, upstreamURL.Host)
 	}
-	if upstreamURI != "/checkout/a%2Fb?attempt=2" {
+	if upstreamURI != requestURI {
 		t.Fatalf("upstream request URI = %q", upstreamURI)
 	}
 	if forwardedFor == "" || strings.Contains(forwardedFor, "spoofed") || forwardedHost != "client.example" || forwardedProto != "http" {
@@ -90,8 +96,12 @@ func TestProxyRecordsAndRecordedRequestReplays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ex.Request.Method != http.MethodPost || ex.Request.URL != "/checkout/a%2Fb?attempt=2" || !bytes.Equal(ex.Request.Body, []byte{9, 8, 0, 7}) {
+	if ex.Request.Method != http.MethodPost || ex.Request.URL != requestURI ||
+		!bytes.Equal(ex.Request.Body, []byte{9, 8, 0, 7}) {
 		t.Fatalf("recorded request = %#v", ex.Request)
+	}
+	if ex.Request.ObservedSize != 4 || ex.Request.Truncated || !ex.Request.Complete {
+		t.Fatalf("recorded request body state = %#v", ex.Request)
 	}
 	if got := ex.Request.Headers.Get("X-Forwarded-For"); got != forwardedFor || strings.Contains(got, "spoofed") {
 		t.Fatalf("recorded X-Forwarded-For = %q, upstream received %q", got, forwardedFor)
@@ -110,6 +120,9 @@ func TestProxyRecordsAndRecordedRequestReplays(t *testing.T) {
 	}
 	if ex.Response.Headers.Get("Set-Cookie") != sanitize.RedactedValue || !bytes.Equal(ex.Response.Body, responseBody) {
 		t.Fatalf("recorded response = %#v", ex.Response)
+	}
+	if ex.Response.ObservedSize != 3 || ex.Response.Truncated || !ex.Response.Complete {
+		t.Fatalf("recorded response body state = %#v", ex.Response)
 	}
 
 	var replayedBody []byte
@@ -137,7 +150,7 @@ func TestProxyRecordsAndRecordedRequestReplays(t *testing.T) {
 	if replayedForwardedFor != forwardedFor || strings.Contains(replayedForwardedFor, "spoofed") {
 		t.Fatalf("replayed X-Forwarded-For = %q, recorded %q", replayedForwardedFor, forwardedFor)
 	}
-	if replayedURI != "/checkout/a%2Fb?attempt=2" {
+	if replayedURI != requestURI {
 		t.Fatalf("replayed request URI = %q", replayedURI)
 	}
 }
@@ -171,6 +184,9 @@ func TestProxyPersistsTransportFailureDistinctFromUpstream502(t *testing.T) {
 	if ex.Response.StatusCode != http.StatusBadGateway || ex.ProxyError == "" {
 		t.Fatalf("transport failure = status %d, proxy error %q", ex.Response.StatusCode, ex.ProxyError)
 	}
+	if !ex.Request.Complete || !ex.Response.Complete {
+		t.Fatalf("transport failure body state = request %#v, response %#v", ex.Request, ex.Response)
+	}
 	if proxyHandler.PersistenceFailures() != 0 {
 		t.Fatalf("transport failure counted as %d persistence failures", proxyHandler.PersistenceFailures())
 	}
@@ -193,6 +209,9 @@ func TestProxyPersistsTransportFailureDistinctFromUpstream502(t *testing.T) {
 	}
 	if ex.Response.StatusCode != http.StatusBadGateway || ex.ProxyError != "" {
 		t.Fatalf("upstream 502 = status %d, proxy error %q", ex.Response.StatusCode, ex.ProxyError)
+	}
+	if !ex.Request.Complete || !ex.Response.Complete {
+		t.Fatalf("upstream 502 body state = request %#v, response %#v", ex.Request, ex.Response)
 	}
 }
 
@@ -261,11 +280,140 @@ func TestProxyStreamsBodiesAndPersistsTruncationMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(ex.Request.Body) != "0123" || ex.Request.BodySize != 10 || !ex.Request.BodyTruncated {
+	if string(ex.Request.Body) != "0123" || ex.Request.ObservedSize != 10 ||
+		!ex.Request.Truncated || !ex.Request.Complete {
 		t.Fatalf("request capture = %#v", ex.Request)
 	}
-	if string(ex.Response.Body) != "abcd" || ex.Response.BodySize != 10 || !ex.Response.BodyTruncated {
+	if string(ex.Response.Body) != "abcd" || ex.Response.ObservedSize != 10 ||
+		!ex.Response.Truncated || !ex.Response.Complete {
 		t.Fatalf("response capture = %#v", ex.Response)
+	}
+}
+
+type interruptedReader struct {
+	data []byte
+}
+
+func (r *interruptedReader) Read(buffer []byte) (int, error) {
+	if len(r.data) == 0 {
+		return 0, errors.New("request stream interrupted")
+	}
+	n := copy(buffer, r.data)
+	r.data = r.data[n:]
+	return n, nil
+}
+
+func TestProxyMarksInterruptedRequestBodyIncomplete(t *testing.T) {
+	ctx := context.Background()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+	target, _ := url.Parse(upstream.URL)
+	store, err := storage.Create(ctx, filepath.Join(t.TempDir(), "incomplete-request.graybox"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	handler := capture.NewProxy(target, store, capture.ErrorHandlers{Transport: func(error) {}})
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"http://proxy.invalid/incomplete",
+		&interruptedReader{data: []byte("partial")},
+	)
+	request.ContentLength = 10
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	exchange, err := store.Get(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(exchange.Request.Body) != "partial" || exchange.Request.ObservedSize != 7 ||
+		exchange.Request.Truncated || exchange.Request.Complete {
+		t.Fatalf("request body state = %#v", exchange.Request)
+	}
+}
+
+func TestProxyPersistsAbortedResponse(t *testing.T) {
+	const partialBody = "partial-response"
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		connection, buffered, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Errorf("hijack upstream response: %v", err)
+			return
+		}
+		defer connection.Close()
+		_, _ = fmt.Fprintf(
+			buffered,
+			"HTTP/1.1 200 OK\r\nContent-Length: 64\r\nContent-Type: text/plain\r\n\r\n%s",
+			partialBody,
+		)
+		_ = buffered.Flush()
+	}))
+	defer upstream.Close()
+	target, _ := url.Parse(upstream.URL)
+
+	for _, test := range []struct {
+		name          string
+		limit         int64
+		wantBody      string
+		wantTruncated bool
+	}{
+		{name: "retains all observed bytes", limit: 64, wantBody: partialBody},
+		{name: "capture limit remains independent", limit: 4, wantBody: "part", wantTruncated: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			store, err := storage.Create(
+				ctx,
+				filepath.Join(t.TempDir(), "aborted-response.graybox"),
+				"test",
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			var transportErrors atomic.Uint64
+			handler := capture.NewProxyWithBodyLimit(
+				target,
+				store,
+				test.limit,
+				capture.ErrorHandlers{Transport: func(error) { transportErrors.Add(1) }},
+			)
+			proxy := httptest.NewServer(handler)
+
+			response, requestErr := proxy.Client().Get(proxy.URL + "/aborted")
+			if response != nil {
+				_, _ = io.Copy(io.Discard, response.Body)
+				_ = response.Body.Close()
+			}
+			proxy.Close()
+			if requestErr == nil && response == nil {
+				t.Fatal("aborted response returned neither a response nor an error")
+			}
+
+			exchange, err := store.Get(ctx, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(exchange.Response.Body) != test.wantBody ||
+				exchange.Response.ObservedSize != int64(len(partialBody)) ||
+				exchange.Response.Truncated != test.wantTruncated || exchange.Response.Complete {
+				t.Fatalf("aborted response body state = %#v", exchange.Response)
+			}
+			if exchange.ProxyError == "" {
+				t.Fatal("aborted response has no proxy error")
+			}
+			if handler.PersistenceFailures() != 0 {
+				t.Fatalf("aborted response counted as a persistence failure")
+			}
+			if transportErrors.Load() != 1 {
+				t.Fatalf("transport error callbacks = %d, want 1", transportErrors.Load())
+			}
+		})
 	}
 }
 

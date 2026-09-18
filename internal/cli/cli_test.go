@@ -27,10 +27,28 @@ func TestListAndShowJSONAreValidAndSharePersistedResults(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	_, err = store.Add(ctx, recording.Exchange{Protocol: "http", StartedAt: now, EndedAt: now.Add(time.Millisecond), Duration: time.Millisecond,
-		Request:    recording.Request{Method: http.MethodPost, URL: "/checkout?try=1", Headers: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"cart":1}`)},
+	_, err = store.Add(ctx, recording.Exchange{
+		Protocol:   "http",
+		StartedAt:  now,
+		EndedAt:    now.Add(time.Millisecond),
+		Duration:   time.Millisecond,
 		ProxyError: "dial upstream: connection refused",
-		Response:   recording.Response{StatusCode: http.StatusInternalServerError, Headers: http.Header{"Content-Type": {"application/octet-stream"}}, Body: []byte{0, 255}}})
+		Request: recording.Request{
+			Method:       http.MethodPost,
+			URL:          "/checkout?try=1",
+			Headers:      http.Header{"Content-Type": {"application/json"}},
+			Body:         []byte(`{"cart":1}`),
+			ObservedSize: 10,
+			Complete:     true,
+		},
+		Response: recording.Response{
+			StatusCode:   http.StatusInternalServerError,
+			Headers:      http.Header{"Content-Type": {"application/octet-stream"}},
+			Body:         []byte{0, 255},
+			ObservedSize: 2,
+			Complete:     true,
+		},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,6 +246,21 @@ func TestAllHelpCommands(t *testing.T) {
 		if code != ExitSuccess || stdout.Len() == 0 || stderr.Len() != 0 {
 			t.Errorf("args/exit/stdout/stderr = %v/%d/%q/%q", args, code, stdout.String(), stderr.String())
 		}
+	}
+}
+
+func TestShowHelpAllowsIncompleteExchanges(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := (App{Stdout: &stdout, Stderr: &stderr}).Run(
+		context.Background(),
+		[]string{"show", "--help"},
+	)
+	if code != ExitSuccess || stderr.Len() != 0 {
+		t.Fatalf("exit/stderr = %d/%q", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "complete recorded exchange") ||
+		!strings.Contains(stdout.String(), "incomplete bodies are labeled") {
+		t.Fatalf("show help = %q", stdout.String())
 	}
 }
 

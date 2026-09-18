@@ -98,8 +98,12 @@ func execute(ctx context.Context, client *http.Client, target *url.URL, ex recor
 		return result
 	}
 	result.TargetURL = targetURL.String()
-	if ex.Request.BodyTruncated {
-		result.Err = fmt.Errorf("cannot replay exchange: request body was truncated (%d of %d bytes captured)", len(ex.Request.Body), ex.Request.BodySize)
+	if ex.Request.Truncated {
+		result.Err = fmt.Errorf("cannot replay exchange: request body was truncated")
+		return result
+	}
+	if !ex.Request.Complete {
+		result.Err = fmt.Errorf("cannot replay exchange: request body was incomplete")
 		return result
 	}
 	req, err := http.NewRequestWithContext(ctx, ex.Request.Method, result.TargetURL, bytes.NewReader(ex.Request.Body))
