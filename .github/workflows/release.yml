@@ -1,0 +1,148 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Validate release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${GITHUB_REF_NAME}"
+
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release tag: $VERSION"
+            exit 1
+          fi
+
+          git fetch origin main
+
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "Release tag does not point to a commit on main"
+            exit 1
+          fi
+
+      - name: Test
+        run: go test ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build release binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="${GITHUB_REF_NAME}"
+          VERSION_NUMBER="${VERSION#v}"
+
+          mkdir -p dist
+
+          targets=(
+            "linux/amd64"
+            "linux/arm64"
+            "darwin/amd64"
+            "darwin/arm64"
+            "windows/amd64"
+            "windows/arm64"
+          )
+
+          for target in "${targets[@]}"; do
+            GOOS="${target%/*}"
+            GOARCH="${target#*/}"
+
+            NAME="graybox_${VERSION_NUMBER}_${GOOS}_${GOARCH}"
+            WORK="dist/${NAME}"
+
+            mkdir -p "$WORK"
+
+            BINARY="graybox"
+            if [[ "$GOOS" == "windows" ]]; then
+              BINARY="graybox.exe"
+            fi
+
+            echo "Building ${GOOS}/${GOARCH}"
+
+            CGO_ENABLED=0 \
+            GOOS="$GOOS" \
+            GOARCH="$GOARCH" \
+            go build \
+              -trimpath \
+              -ldflags="-s -w -X main.version=${VERSION}" \
+              -o "${WORK}/${BINARY}" \
+              ./cmd/graybox
+
+            if [[ "$GOOS" == "linux" && "$GOARCH" == "amd64" ]]; then
+              "${WORK}/${BINARY}" version | grep -Fx "graybox ${VERSION}"
+            fi
+
+            if [[ "$GOOS" == "windows" ]]; then
+              (
+                cd "$WORK"
+                zip -q "../${NAME}.zip" "$BINARY"
+              )
+            else
+              tar \
+                -C "$WORK" \
+                -czf "dist/${NAME}.tar.gz" \
+                "$BINARY"
+            fi
+
+            rm -rf "$WORK"
+          done
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          cd dist
+          sha256sum *.tar.gz *.zip > SHA256SUMS
+
+      - name: Create GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          VERSION="${GITHUB_REF_NAME}"
+
+          EXTRA_ARGS=()
+
+          if [[ "$VERSION" == *-* ]]; then
+            EXTRA_ARGS+=(--prerelease)
+          fi
+
+          gh release create "$VERSION" \
+            dist/*.tar.gz \
+            dist/*.zip \
+            dist/SHA256SUMS \
+            --verify-tag \
+            --title "Graybox ${VERSION}" \
+            --generate-notes \
+            "${EXTRA_ARGS[@]}"
