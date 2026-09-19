@@ -1,4 +1,4 @@
-// package diff contains Graybox's behavioral comparison model.
+// Package diff contains Graybox's behavioral comparison model.
 package diff
 
 import "time"
@@ -44,6 +44,14 @@ const (
 	//
 	// V1 uses this for textual and binary bodies that are compared exactly.
 	KindBodyChanged DifferenceKind = "body_changed"
+
+	// KindElementAdded means an element exists at a JSON array position in the
+	// replayed response but not in the recorded baseline response.
+	KindElementAdded DifferenceKind = "element_added"
+
+	// KindElementRemoved means an element exists at a JSON array position in the
+	// recorded baseline response but not in the replayed response.
+	KindElementRemoved DifferenceKind = "element_removed"
 )
 
 // Value is one side of a behavioral difference.
