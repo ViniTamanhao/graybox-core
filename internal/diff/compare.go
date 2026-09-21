@@ -12,16 +12,19 @@ import (
 // the supplied rules.
 //
 // The comparison is deterministic: status differences are reported first,
-// followed by header differences ordered by normalized header name.
+// followed by header differences ordered by normalized header name, followed
+// by body differences in deterministic semantic order.
 //
-// Body comparison is intentionally added separately. Keeping status/header
-// comparison independent makes the comparison engine testable before replay
-// begins retaining complete response bodies.
+// Compare may return a partial Comparison together with an error when some
+// response evidence cannot be compared reliably. In particular, a truncated
+// or incomplete response body cannot establish behavioral equivalence. Callers
+// must treat a non-nil error as an incomplete comparison even when the returned
+// Comparison contains useful status or header differences.
 func Compare(
 	baseline recording.Response,
 	current recording.Response,
 	rules Rules,
-) Comparison {
+) (Comparison, error) {
 	var differences []Difference
 
 	if difference, changed := compareStatus(
@@ -41,9 +44,20 @@ func Compare(
 		)...,
 	)
 
+	bodyDifferences, err := compareBody(
+		baseline,
+		current,
+		rules,
+	)
+
+	differences = append(
+		differences,
+		bodyDifferences...,
+	)
+
 	return Comparison{
 		Differences: differences,
-	}
+	}, err
 }
 
 func compareStatus(

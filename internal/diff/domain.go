@@ -100,19 +100,24 @@ type Difference struct {
 	After    Value
 }
 
-// Comparison is the result of successfully comparing one baseline response
-// with one replayed response.
+// Comparison contains behavioral differences discovered while comparing one
+// baseline response with one current response.
 //
-// A successful comparison may still contain behavioral differences.
-// Equivalence is derived from Differences rather than stored separately so the
+// Compare may return a partial Comparison together with a non-nil error when
+// some evidence cannot be compared reliably. Callers must therefore check the
+// error returned by Compare before treating Equivalent as a conclusion about
+// the complete responses.
+//
+// Equivalent is deviced from Differences rather than stored separately so the
 // model cannot represent contradictory states such as Equivalent=true while
 // also containing differences.
 type Comparison struct {
 	Differences []Difference
 }
 
-// Equivalent reports whether the compared responses are behaviorally
-// equivalent according to the active comparison rules.
+// Equivalent reports whether this Comparison contains no behavioral
+// differences. Callers of Compare must also check its returned error before
+// treating the complete responses as behaviorally equivalent.
 func (c Comparison) Equivalent() bool {
 	return len(c.Differences) == 0
 }

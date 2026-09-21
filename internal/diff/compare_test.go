@@ -8,6 +8,38 @@ import (
 	"github.com/ViniTamanhao/graybox-core/internal/recording"
 )
 
+func mustCompareCompleteBodies(
+	t *testing.T,
+	baseline recording.Response,
+	current recording.Response,
+	rules Rules,
+) Comparison {
+	t.Helper()
+
+	// These tests exercise status/header behavior rather than capture failure.
+	// Give their empty bodies the valid schema-1 state for a normally completed
+	// zero-byte response.
+	baseline.Complete = true
+	baseline.ObservedSize = int64(len(baseline.Body))
+
+	current.Complete = true
+	current.ObservedSize = int64(len(current.Body))
+
+	comparison, err := Compare(
+		baseline,
+		current,
+		rules,
+	)
+	if err != nil {
+		t.Fatalf(
+			"Compare() error = %v, want nil",
+			err,
+		)
+	}
+
+	return comparison
+}
+
 func TestCompareEquivalentStatusAndHeaders(t *testing.T) {
 	baseline := recording.Response{
 		StatusCode: http.StatusOK,
@@ -25,7 +57,8 @@ func TestCompareEquivalentStatusAndHeaders(t *testing.T) {
 		},
 	}
 
-	got := Compare(
+	got := mustCompareCompleteBodies(
+		t,
 		baseline,
 		current,
 		Rules{},
@@ -48,7 +81,8 @@ func TestCompareStatusChanged(t *testing.T) {
 		StatusCode: http.StatusOK,
 	}
 
-	got := Compare(
+	got := mustCompareCompleteBodies(
+		t,
 		baseline,
 		current,
 		Rules{},
@@ -83,7 +117,8 @@ func TestCompareIgnoredStatus(t *testing.T) {
 		StatusCode: http.StatusOK,
 	}
 
-	got := Compare(
+	got := mustCompareCompleteBodies(
+		t,
 		baseline,
 		current,
 		Rules{
@@ -120,7 +155,8 @@ func TestCompareHeaderAddedRemovedAndChanged(t *testing.T) {
 		},
 	}
 
-	got := Compare(
+	got := mustCompareCompleteBodies(
+		t,
 		baseline,
 		current,
 		Rules{},
@@ -173,7 +209,8 @@ func TestCompareHeaderNamesAreCaseInsensitive(t *testing.T) {
 		},
 	}
 
-	got := Compare(
+	got := mustCompareCompleteBodies(
+		t,
 		baseline,
 		current,
 		Rules{},
@@ -202,7 +239,8 @@ func TestCompareRepeatedHeaderValueOrderIsSignificant(t *testing.T) {
 		},
 	}
 
-	got := Compare(
+	got := mustCompareCompleteBodies(
+		t,
 		baseline,
 		current,
 		Rules{},
@@ -245,7 +283,8 @@ func TestCompareIgnoredHeader(t *testing.T) {
 		},
 	}
 
-	got := Compare(
+	got := mustCompareCompleteBodies(
+		t,
 		baseline,
 		current,
 		Rules{
@@ -280,7 +319,8 @@ func TestCompareIgnoredHeadersComponent(t *testing.T) {
 		},
 	}
 
-	got := Compare(
+	got := mustCompareCompleteBodies(
+		t,
 		baseline,
 		current,
 		Rules{
@@ -317,7 +357,8 @@ func TestCompareStatusIsReportedBeforeHeaders(t *testing.T) {
 		},
 	}
 
-	got := Compare(
+	got := mustCompareCompleteBodies(
+		t,
 		baseline,
 		current,
 		Rules{},
@@ -366,7 +407,8 @@ func TestCompareNilAndEmptyHeadersAreEquivalent(t *testing.T) {
 		Headers:    http.Header{},
 	}
 
-	got := Compare(
+	got := mustCompareCompleteBodies(
+		t,
 		baseline,
 		current,
 		Rules{},
@@ -398,7 +440,8 @@ func TestCompareHeaderDifferencesOwnTheirValues(t *testing.T) {
 		},
 	}
 
-	got := Compare(
+	got := mustCompareCompleteBodies(
+		t,
 		baseline,
 		current,
 		Rules{},
@@ -458,7 +501,8 @@ func TestCompareMergesDifferentlyCasedHeaderKeysDeterministically(
 		},
 	}
 
-	got := Compare(
+	got := mustCompareCompleteBodies(
+		t,
 		baseline,
 		current,
 		Rules{},
