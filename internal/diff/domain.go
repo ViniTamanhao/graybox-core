@@ -108,7 +108,7 @@ type Difference struct {
 // error returned by Compare before treating Equivalent as a conclusion about
 // the complete responses.
 //
-// Equivalent is deviced from Differences rather than stored separately so the
+// Equivalent is derived from Differences rather than stored separately so the
 // model cannot represent contradictory states such as Equivalent=true while
 // also containing differences.
 type Comparison struct {

@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/ViniTamanhao/graybox-core/internal/recording"
 )
@@ -493,6 +494,12 @@ func jsonDifference(
 	}
 }
 
+type canonicalJSONNumber struct {
+	Negative bool
+	Digits   string
+	Exponent string
+}
+
 func jsonNumbersEqual(
 	baseline json.Number,
 	current json.Number,
@@ -501,20 +508,144 @@ func jsonNumbersEqual(
 		return true
 	}
 
-	baselineValue, baselineOK := new(big.Rat).SetString(
-		baseline.String(),
+	baselineCanonical, baselineOK := canonicalizeJSONNumber(
+		baseline,
 	)
-	currentValue, currentOK := new(big.Rat).SetString(
-		current.String(),
+	currentCanonical, currentOK := canonicalizeJSONNumber(
+		current,
 	)
 
 	if !baselineOK || !currentOK {
-		// Both numbers originated from encoding/json and should therefore be
-		// valid JSON number representations. Falling back to token equality is
-		// safer than introducing approximate floating-point comparison if that
-		// invariant ever changes.
+		// Numbers reaching this function normally originate from
+		// encoding/json, so canonicalization should succeed. Falling back to
+		// token equality is safer than guessing if that invariant ever changes.
 		return baseline.String() == current.String()
 	}
 
-	return baselineValue.Cmp(currentValue) == 0
+	return baselineCanonical == currentCanonical
+}
+
+func canonicalizeJSONNumber(
+	number json.Number,
+) (canonicalJSONNumber, bool) {
+	raw := number.String()
+	if raw == "" {
+		return canonicalJSONNumber{}, false
+	}
+
+	negative := false
+
+	if raw[0] == '-' {
+		negative = true
+		raw = raw[1:]
+
+		if raw == "" {
+			return canonicalJSONNumber{}, false
+		}
+	}
+
+	mantissa := raw
+	exponentText := "0"
+
+	if index := strings.IndexAny(raw, "eE"); index >= 0 {
+		mantissa = raw[:index]
+		exponentText = raw[index+1:]
+
+		if mantissa == "" || exponentText == "" {
+			return canonicalJSONNumber{}, false
+		}
+	}
+
+	exponent := new(big.Int)
+	if _, ok := exponent.SetString(
+		exponentText,
+		10,
+	); !ok {
+		return canonicalJSONNumber{}, false
+	}
+
+	integerPart := mantissa
+	fractionPart := ""
+
+	if index := strings.IndexByte(
+		mantissa,
+		'.',
+	); index >= 0 {
+		integerPart = mantissa[:index]
+		fractionPart = mantissa[index+1:]
+
+		if integerPart == "" || fractionPart == "" {
+			return canonicalJSONNumber{}, false
+		}
+	}
+
+	if !decimalDigits(integerPart) ||
+		(fractionPart != "" && !decimalDigits(fractionPart)) {
+		return canonicalJSONNumber{}, false
+	}
+
+	digits := integerPart + fractionPart
+
+	// Leading zeroes do not contribute to the numeric value.
+	digits = strings.TrimLeft(
+		digits,
+		"0",
+	)
+
+	// Every representation of zero canonicalizes identically, including -0,
+	// -0.0, and 0e999999999.
+	if digits == "" {
+		return canonicalJSONNumber{
+			Negative: false,
+			Digits:   "0",
+			Exponent: "0",
+		}, true
+	}
+
+	// Combining the integer and fractional portions implicitly moves the
+	// decimal point to the end. Compensate for that by subtracting the number
+	// of fractional digits from the explicit exponent.
+	exponent.Sub(
+		exponent,
+		big.NewInt(
+			int64(len(fractionPart)),
+		),
+	)
+
+	// Trailing zeroes in the coefficient can be moved into the decimal
+	// exponent without changing the numeric value.
+	trimmed := strings.TrimRight(
+		digits,
+		"0",
+	)
+	trailingZeroes := len(digits) - len(trimmed)
+
+	digits = trimmed
+
+	exponent.Add(
+		exponent,
+		big.NewInt(
+			int64(trailingZeroes),
+		),
+	)
+
+	return canonicalJSONNumber{
+		Negative: negative,
+		Digits:   digits,
+		Exponent: exponent.String(),
+	}, true
+}
+
+func decimalDigits(value string) bool {
+	if value == "" {
+		return false
+	}
+
+	for _, digit := range []byte(value) {
+		if digit < '0' || digit > '9' {
+			return false
+		}
+	}
+
+	return true
 }

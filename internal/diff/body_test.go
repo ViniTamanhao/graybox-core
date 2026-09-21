@@ -991,3 +991,195 @@ func completeBodyResponse(
 		Complete:     true,
 	}
 }
+
+func TestCompareJSONNumbersWithHugeExponentAreComparedWithoutExpansion(
+	t *testing.T,
+) {
+	baseline := completeBodyResponse(
+		[]byte(`{"number":1e1000000000}`),
+	)
+
+	current := completeBodyResponse(
+		[]byte(`{"number":10e999999999}`),
+	)
+
+	got, err := Compare(
+		baseline,
+		current,
+		Rules{},
+	)
+	if err != nil {
+		t.Fatalf(
+			"Compare() error = %v, want nil",
+			err,
+		)
+	}
+
+	if !got.Equivalent() {
+		t.Fatalf(
+			"Compare() differences = %#v, want equivalent",
+			got.Differences,
+		)
+	}
+}
+
+func TestCompareJSONNumbersWithDifferentHugeExponentsDiffer(
+	t *testing.T,
+) {
+	baseline := completeBodyResponse(
+		[]byte(`{"number":1e1000000000}`),
+	)
+
+	current := completeBodyResponse(
+		[]byte(`{"number":1e999999999}`),
+	)
+
+	got, err := Compare(
+		baseline,
+		current,
+		Rules{},
+	)
+	if err != nil {
+		t.Fatalf(
+			"Compare() error = %v, want nil",
+			err,
+		)
+	}
+
+	if len(got.Differences) != 1 {
+		t.Fatalf(
+			"len(Differences) = %d, want 1",
+			len(got.Differences),
+		)
+	}
+
+	if got.Differences[0].Kind != KindValueChanged {
+		t.Fatalf(
+			"Kind = %q, want %q",
+			got.Differences[0].Kind,
+			KindValueChanged,
+		)
+	}
+}
+
+func TestCompareJSONNegativeZeroEqualsZero(
+	t *testing.T,
+) {
+	baseline := completeBodyResponse(
+		[]byte(`{"number":-0.0e999999999}`),
+	)
+
+	current := completeBodyResponse(
+		[]byte(`{"number":0}`),
+	)
+
+	got, err := Compare(
+		baseline,
+		current,
+		Rules{},
+	)
+	if err != nil {
+		t.Fatalf(
+			"Compare() error = %v, want nil",
+			err,
+		)
+	}
+
+	if !got.Equivalent() {
+		t.Fatalf(
+			"Compare() differences = %#v, want equivalent",
+			got.Differences,
+		)
+	}
+}
+
+func TestCanonicalizeJSONNumber(
+	t *testing.T,
+) {
+	tests := []struct {
+		name  string
+		input json.Number
+		want  canonicalJSONNumber
+	}{
+		{
+			name:  "integer",
+			input: json.Number("1"),
+			want: canonicalJSONNumber{
+				Digits:   "1",
+				Exponent: "0",
+			},
+		},
+		{
+			name:  "decimal",
+			input: json.Number("1.0"),
+			want: canonicalJSONNumber{
+				Digits:   "1",
+				Exponent: "0",
+			},
+		},
+		{
+			name:  "scientific",
+			input: json.Number("10e-1"),
+			want: canonicalJSONNumber{
+				Digits:   "1",
+				Exponent: "0",
+			},
+		},
+		{
+			name:  "fraction",
+			input: json.Number("0.00100"),
+			want: canonicalJSONNumber{
+				Digits:   "1",
+				Exponent: "-3",
+			},
+		},
+		{
+			name:  "negative",
+			input: json.Number("-12.50"),
+			want: canonicalJSONNumber{
+				Negative: true,
+				Digits:   "125",
+				Exponent: "-1",
+			},
+		},
+		{
+			name:  "huge exponent",
+			input: json.Number("1e1000000000"),
+			want: canonicalJSONNumber{
+				Digits:   "1",
+				Exponent: "1000000000",
+			},
+		},
+		{
+			name:  "negative zero",
+			input: json.Number("-0.000e999999999"),
+			want: canonicalJSONNumber{
+				Digits:   "0",
+				Exponent: "0",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, ok := canonicalizeJSONNumber(
+				test.input,
+			)
+			if !ok {
+				t.Fatalf(
+					"canonicalizeJSONNumber(%q) failed",
+					test.input,
+				)
+			}
+
+			if got != test.want {
+				t.Fatalf(
+					"canonicalizeJSONNumber(%q) = %#v, want %#v",
+					test.input,
+					got,
+					test.want,
+				)
+			}
+		})
+	}
+}
