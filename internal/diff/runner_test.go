@@ -35,6 +35,34 @@ func (s singleExchangeSource) List(
 	}, nil
 }
 
+type fakeReplayVisit struct {
+	baseline  recording.Exchange
+	execution replay.Execution
+}
+
+type fakeReplayer struct {
+	visits []fakeReplayVisit
+	err    error
+}
+
+func (r fakeReplayer) RunEach(
+	_ context.Context,
+	_ *url.URL,
+	_ *int64,
+	visit replay.VisitFunc,
+) error {
+	for _, item := range r.visits {
+		if err := visit(
+			item.baseline,
+			item.execution,
+		); err != nil {
+			return err
+		}
+	}
+
+	return r.err
+}
+
 func TestRunnerReportsSemanticallyEquivalentReplay(
 	t *testing.T,
 ) {
@@ -219,7 +247,8 @@ func TestRunnerReportsReplayBehaviorChanges(
 		)
 	}
 
-	if result.Comparison.Differences[0].Kind != KindStatusChanged {
+	if result.Comparison.Differences[0].Kind !=
+		KindStatusChanged {
 		t.Fatalf(
 			"first difference kind = %q, want %q",
 			result.Comparison.Differences[0].Kind,
@@ -227,7 +256,8 @@ func TestRunnerReportsReplayBehaviorChanges(
 		)
 	}
 
-	if result.Comparison.Differences[1].Kind != KindHeaderChanged {
+	if result.Comparison.Differences[1].Kind !=
+		KindHeaderChanged {
 		t.Fatalf(
 			"second difference kind = %q, want %q",
 			result.Comparison.Differences[1].Kind,
@@ -235,7 +265,8 @@ func TestRunnerReportsReplayBehaviorChanges(
 		)
 	}
 
-	if result.Comparison.Differences[2].Kind != KindValueChanged {
+	if result.Comparison.Differences[2].Kind !=
+		KindValueChanged {
 		t.Fatalf(
 			"third difference kind = %q, want %q",
 			result.Comparison.Differences[2].Kind,
@@ -325,6 +356,112 @@ func TestRunnerFailsWhenBaselineBodyIsUnavailable(
 			"Outcome() = %q, want %q",
 			result.Outcome(),
 			OutcomeFailed,
+		)
+	}
+}
+
+func TestRunnerContinuesAfterPerExchangeReplayFailure(
+	t *testing.T,
+) {
+	first := testDiffExchange(
+		[]byte(`{"value":1}`),
+	)
+	first.ID = 1
+
+	second := testDiffExchange(
+		[]byte(`{"value":2}`),
+	)
+	second.ID = 2
+
+	secondResponse := second.Response
+
+	report, err := (Runner{
+		Replayer: fakeReplayer{
+			visits: []fakeReplayVisit{
+				{
+					baseline: first,
+					execution: replay.Execution{
+						ExchangeID: first.ID,
+						Method:     first.Request.Method,
+						Path:       first.Request.URL,
+						Err: errors.New(
+							"connection refused",
+						),
+					},
+				},
+				{
+					baseline: second,
+					execution: replay.Execution{
+						ExchangeID: second.ID,
+						Method:     second.Request.Method,
+						Path:       second.Request.URL,
+						Response:   &secondResponse,
+					},
+				},
+			},
+		},
+	}).Run(
+		context.Background(),
+		&url.URL{
+			Scheme: "http",
+			Host:   "example.test",
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(report.Results) != 2 {
+		t.Fatalf(
+			"len(Results) = %d, want 2",
+			len(report.Results),
+		)
+	}
+
+	if report.Results[0].Outcome() != OutcomeFailed {
+		t.Fatalf(
+			"first outcome = %q, want %q",
+			report.Results[0].Outcome(),
+			OutcomeFailed,
+		)
+	}
+
+	if report.Results[1].Outcome() != OutcomeEquivalent {
+		t.Fatalf(
+			"second outcome = %q, want %q",
+			report.Results[1].Outcome(),
+			OutcomeEquivalent,
+		)
+	}
+
+	summary := report.Summary()
+
+	if summary.Total != 2 {
+		t.Fatalf(
+			"Total = %d, want 2",
+			summary.Total,
+		)
+	}
+
+	if summary.Failed != 1 {
+		t.Fatalf(
+			"Failed = %d, want 1",
+			summary.Failed,
+		)
+	}
+
+	if summary.Equivalent != 1 {
+		t.Fatalf(
+			"Equivalent = %d, want 1",
+			summary.Equivalent,
+		)
+	}
+
+	if summary.Changed != 0 {
+		t.Fatalf(
+			"Changed = %d, want 0",
+			summary.Changed,
 		)
 	}
 }
