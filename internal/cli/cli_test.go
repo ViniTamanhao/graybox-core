@@ -239,7 +239,15 @@ func TestVersionJSONIsStableAndValid(t *testing.T) {
 }
 
 func TestAllHelpCommands(t *testing.T) {
-	commands := [][]string{{"help"}, {"help", "record"}, {"help", "ls"}, {"help", "show"}, {"help", "replay"}, {"help", "version"}}
+	commands := [][]string{
+		{"help"},
+		{"help", "record"},
+		{"help", "ls"},
+		{"help", "show"},
+		{"help", "replay"},
+		{"help", "diff"},
+		{"help", "version"},
+	}
 	for _, args := range commands {
 		var stdout, stderr bytes.Buffer
 		code := (App{Stdout: &stdout, Stderr: &stderr}).Run(context.Background(), args)

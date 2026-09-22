@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -162,27 +161,6 @@ func (a App) finishRecording(store recordingStore, handler *capture.Proxy) (int,
 		return ExitInternal, closeErr
 	}
 	return ExitSuccess, nil
-}
-
-func parseTarget(value string) (*url.URL, error) {
-	if value == "" {
-		return nil, usageError{"--target is required"}
-	}
-	if !strings.Contains(value, "://") {
-		return nil, usageError{fmt.Sprintf("target %q is missing a URL scheme; try http://%s", value, value)}
-	}
-	parsed, err := url.Parse(value)
-	if err != nil {
-		return nil, usageError{fmt.Sprintf("invalid target %q: %v", value, err)}
-	}
-	parsed.Scheme = strings.ToLower(parsed.Scheme)
-	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-		return nil, usageError{fmt.Sprintf("target %q must be an absolute HTTP or HTTPS URL", value)}
-	}
-	if parsed.User != nil || parsed.Fragment != "" || parsed.RawQuery != "" {
-		return nil, usageError{fmt.Sprintf("target %q must not contain credentials, a query, or a fragment", value)}
-	}
-	return parsed, nil
 }
 
 func displayListen(listen string) string {
