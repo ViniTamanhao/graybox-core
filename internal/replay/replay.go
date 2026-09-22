@@ -78,8 +78,8 @@ type Runner struct {
 
 // Run replays all exchanges, or only id when it is non-nil.
 //
-// Results remain compact even though replay internally captures each response
-// for downstream consumers.
+// Results remain compact and replayed response bodies are drained rather than
+// retained because the compact replay result does not expose body evidence.
 func (r Runner) Run(
 	ctx context.Context,
 	target *url.URL,
@@ -87,15 +87,20 @@ func (r Runner) Run(
 ) ([]Result, error) {
 	var results []Result
 
-	err := r.RunEach(
+	err := r.runEach(
 		ctx,
 		target,
 		id,
-		func(_ recording.Exchange, execution Execution) error {
+		false,
+		func(
+			_ recording.Exchange,
+			execution Execution,
+		) error {
 			results = append(
 				results,
 				execution.result(),
 			)
+
 			return nil
 		},
 	)
@@ -109,12 +114,31 @@ func (r Runner) Run(
 // RunEach replays all exchanges, or only id when it is non-nil, and invokes
 // visit synchronously for each execution.
 //
+// Detailed callers need the replayed response body, so RunEach retains a
+// bounded body prefix according to ResponseBodyLimit.
+//
 // Only one full recorded exchange and one bounded replay response need to be
 // retained at a time. Returning an error from visit stops iteration.
 func (r Runner) RunEach(
 	ctx context.Context,
 	target *url.URL,
 	id *int64,
+	visit VisitFunc,
+) error {
+	return r.runEach(
+		ctx,
+		target,
+		id,
+		true,
+		visit,
+	)
+}
+
+func (r Runner) runEach(
+	ctx context.Context,
+	target *url.URL,
+	id *int64,
+	captureBody bool,
 	visit VisitFunc,
 ) error {
 	client := replayClient(r.Client)
@@ -137,6 +161,7 @@ func (r Runner) RunEach(
 				target,
 				exchange,
 				bodyLimit,
+				captureBody,
 			),
 		)
 	}
@@ -168,6 +193,7 @@ func (r Runner) RunEach(
 				target,
 				exchange,
 				bodyLimit,
+				captureBody,
 			),
 		); err != nil {
 			return err
@@ -189,9 +215,9 @@ func (e Execution) result() Result {
 	statusCode := 0
 	status := ""
 
-	// Preserve the existing compact replay contract: a replay that did not
-	// complete successfully does not report an HTTP status through Result,
-	// even if Execution retained partial HTTP evidence for richer consumers.
+	// Preserve the compact replay contract: an execution that failed does not
+	// expose a successful HTTP status through Result, even when Execution
+	// retained partial response evidence for richer consumers.
 	if e.Err == nil && e.Response != nil {
 		statusCode = e.Response.StatusCode
 		status = e.Status
@@ -248,6 +274,7 @@ func execute(
 	target *url.URL,
 	exchange recording.Exchange,
 	bodyLimit int64,
+	captureBody bool,
 ) Execution {
 	result := Execution{
 		ExchangeID: exchange.ID,
@@ -322,14 +349,35 @@ func execute(
 
 	observed := &recording.Response{
 		StatusCode: response.StatusCode,
-
-		// Recorded response headers are sanitized before persistence. Apply the
-		// same policy to replayed headers before they can enter a diff result,
-		// otherwise secrets such as Set-Cookie could be surfaced by comparison.
-		Headers: sanitize.Headers(response.Header),
 	}
 
 	result.Response = observed
+
+	if !captureBody {
+		_, err := io.Copy(
+			io.Discard,
+			response.Body,
+		)
+
+		if err != nil {
+			result.Err = fmt.Errorf(
+				"read replay response: %w",
+				err,
+			)
+			return result
+		}
+
+		observed.Complete = true
+
+		return result
+	}
+
+	// Recorded response headers are sanitized before persistence. Apply the
+	// same policy to replayed headers before they can enter a diff result,
+	// otherwise secrets such as Set-Cookie could be surfaced by comparison.
+	observed.Headers = sanitize.Headers(
+		response.Header,
+	)
 
 	body, observedSize, truncated, err := captureResponseBody(
 		response.Body,

@@ -15,45 +15,113 @@ import (
 	"github.com/ViniTamanhao/graybox-core/internal/sanitize"
 )
 
-type fakeSource struct{ exchange recording.Exchange }
+type fakeSource struct {
+	exchange recording.Exchange
+}
 
-func (f fakeSource) Get(context.Context, int64) (recording.Exchange, error) { return f.exchange, nil }
-func (f fakeSource) List(context.Context, recording.Filter) ([]recording.Summary, error) {
-	return []recording.Summary{{ID: f.exchange.ID}}, nil
+func (f fakeSource) Get(
+	context.Context,
+	int64,
+) (recording.Exchange, error) {
+	return f.exchange, nil
+}
+
+func (f fakeSource) List(
+	context.Context,
+	recording.Filter,
+) ([]recording.Summary, error) {
+	return []recording.Summary{
+		{
+			ID: f.exchange.ID,
+		},
+	}, nil
 }
 
 func TestBuildURL(t *testing.T) {
-	target, _ := url.Parse("https://example.test/api/")
-	got, err := BuildURL(target, "/users/a%2Fb?q=hello%20world")
+	target, _ := url.Parse(
+		"https://example.test/api/",
+	)
+
+	got, err := BuildURL(
+		target,
+		"/users/a%2Fb?q=hello%20world",
+	)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if got.String() != "https://example.test/api/users/a%2Fb?q=hello%20world" {
-		t.Fatalf("URL = %q", got.String())
 	}
 
-	got, err = BuildURL(target, "/empty-query?")
+	if got.String() != "https://example.test/api/users/a%2Fb?q=hello%20world" {
+		t.Fatalf(
+			"URL = %q",
+			got.String(),
+		)
+	}
+
+	got, err = BuildURL(
+		target,
+		"/empty-query?",
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.String() != "https://example.test/api/empty-query?" || !got.ForceQuery {
-		t.Fatalf("forced-query URL = %q, ForceQuery = %v", got.String(), got.ForceQuery)
+
+	if got.String() != "https://example.test/api/empty-query?" ||
+		!got.ForceQuery {
+		t.Fatalf(
+			"forced-query URL = %q, ForceQuery = %v",
+			got.String(),
+			got.ForceQuery,
+		)
 	}
 }
 
-func TestRunnerPreservesRequestAndOmitsUnsafeHeaders(t *testing.T) {
-	var method, requestURI, body, authorization, connection, hop string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		method, requestURI = r.Method, r.URL.RequestURI()
-		data, _ := io.ReadAll(r.Body)
-		body = string(data)
-		authorization, connection = r.Header.Get("Authorization"), r.Header.Get("Connection")
-		hop = r.Header.Get("X-Hop")
-		w.WriteHeader(http.StatusAccepted)
-	}))
+func TestRunnerPreservesRequestAndOmitsUnsafeHeaders(
+	t *testing.T,
+) {
+	var method string
+	var requestURI string
+	var body string
+	var authorization string
+	var connection string
+	var hop string
+
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(
+				w http.ResponseWriter,
+				r *http.Request,
+			) {
+				method = r.Method
+				requestURI = r.URL.RequestURI()
+
+				data, _ := io.ReadAll(
+					r.Body,
+				)
+				body = string(data)
+
+				authorization = r.Header.Get(
+					"Authorization",
+				)
+				connection = r.Header.Get(
+					"Connection",
+				)
+				hop = r.Header.Get(
+					"X-Hop",
+				)
+
+				w.WriteHeader(
+					http.StatusAccepted,
+				)
+			},
+		),
+	)
 	defer server.Close()
-	target, _ := url.Parse(server.URL)
-	ex := recording.Exchange{
+
+	target, _ := url.Parse(
+		server.URL,
+	)
+
+	exchange := recording.Exchange{
 		ID: 7,
 		Request: recording.Request{
 			Method:       "PATCH",
@@ -62,49 +130,126 @@ func TestRunnerPreservesRequestAndOmitsUnsafeHeaders(t *testing.T) {
 			ObservedSize: 7,
 			Complete:     true,
 			Headers: http.Header{
-				"Authorization": {sanitize.RedactedValue},
-				"Connection":    {"close, X-Hop"},
-				"X-Hop":         {"unsafe"},
-				"X-Test":        {"yes"},
+				"Authorization": {
+					sanitize.RedactedValue,
+				},
+				"Connection": {
+					"close, X-Hop",
+				},
+				"X-Hop": {
+					"unsafe",
+				},
+				"X-Test": {
+					"yes",
+				},
 			},
 		},
 	}
-	results, err := (Runner{Source: fakeSource{ex}, Client: server.Client()}).Run(context.Background(), target, nil)
+
+	results, err := (Runner{
+		Source: fakeSource{
+			exchange: exchange,
+		},
+		Client: server.Client(),
+	}).Run(
+		context.Background(),
+		target,
+		nil,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 || results[0].Err != nil || results[0].StatusCode != http.StatusAccepted {
-		t.Fatalf("results = %#v", results)
+
+	if len(results) != 1 ||
+		results[0].Err != nil ||
+		results[0].StatusCode != http.StatusAccepted {
+		t.Fatalf(
+			"results = %#v",
+			results,
+		)
 	}
-	if method != "PATCH" || requestURI != "/thing?q=1" || body != "payload" {
-		t.Fatalf("received %s %s %q", method, requestURI, body)
+
+	if method != "PATCH" ||
+		requestURI != "/thing?q=1" ||
+		body != "payload" {
+		t.Fatalf(
+			"received %s %s %q",
+			method,
+			requestURI,
+			body,
+		)
 	}
-	if authorization != "" || connection != "" || hop != "" {
-		t.Fatalf("unsafe headers replayed: authorization=%q connection=%q nominated=%q", authorization, connection, hop)
+
+	if authorization != "" ||
+		connection != "" ||
+		hop != "" {
+		t.Fatalf(
+			"unsafe headers replayed: authorization=%q connection=%q nominated=%q",
+			authorization,
+			connection,
+			hop,
+		)
 	}
-	if results[0].Duration < 0 || results[0].Duration > time.Minute {
-		t.Fatalf("unexpected duration %s", results[0].Duration)
+
+	if results[0].Duration < 0 ||
+		results[0].Duration > time.Minute {
+		t.Fatalf(
+			"unexpected duration %s",
+			results[0].Duration,
+		)
 	}
-	if !strings.HasPrefix(results[0].TargetURL, server.URL) {
-		t.Fatalf("target URL = %q", results[0].TargetURL)
+
+	if !strings.HasPrefix(
+		results[0].TargetURL,
+		server.URL,
+	) {
+		t.Fatalf(
+			"target URL = %q",
+			results[0].TargetURL,
+		)
 	}
 }
 
-func TestRunnerStopsAtRedirectAndDoesNotInjectCompression(t *testing.T) {
+func TestRunnerStopsAtRedirectAndDoesNotInjectCompression(
+	t *testing.T,
+) {
 	var redirected int
 	var acceptEncoding string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		acceptEncoding = r.Header.Get("Accept-Encoding")
-		if r.URL.Path == "/next" {
-			redirected++
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		http.Redirect(w, r, "/next", http.StatusFound)
-	}))
+
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(
+				w http.ResponseWriter,
+				r *http.Request,
+			) {
+				acceptEncoding = r.Header.Get(
+					"Accept-Encoding",
+				)
+
+				if r.URL.Path == "/next" {
+					redirected++
+					w.WriteHeader(
+						http.StatusOK,
+					)
+					return
+				}
+
+				http.Redirect(
+					w,
+					r,
+					"/next",
+					http.StatusFound,
+				)
+			},
+		),
+	)
 	defer server.Close()
-	target, _ := url.Parse(server.URL)
-	ex := recording.Exchange{
+
+	target, _ := url.Parse(
+		server.URL,
+	)
+
+	exchange := recording.Exchange{
 		ID: 1,
 		Request: recording.Request{
 			Method:   http.MethodGet,
@@ -112,27 +257,66 @@ func TestRunnerStopsAtRedirectAndDoesNotInjectCompression(t *testing.T) {
 			Complete: true,
 		},
 	}
-	results, err := (Runner{Source: fakeSource{ex}}).Run(context.Background(), target, nil)
+
+	results, err := (Runner{
+		Source: fakeSource{
+			exchange: exchange,
+		},
+	}).Run(
+		context.Background(),
+		target,
+		nil,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 || results[0].Err != nil || results[0].StatusCode != http.StatusFound {
-		t.Fatalf("results = %#v", results)
+
+	if len(results) != 1 ||
+		results[0].Err != nil ||
+		results[0].StatusCode != http.StatusFound {
+		t.Fatalf(
+			"results = %#v",
+			results,
+		)
 	}
+
 	if redirected != 0 {
-		t.Fatalf("redirect target was requested %d times", redirected)
+		t.Fatalf(
+			"redirect target was requested %d times",
+			redirected,
+		)
 	}
+
 	if acceptEncoding != "" {
-		t.Fatalf("implicit Accept-Encoding = %q", acceptEncoding)
+		t.Fatalf(
+			"implicit Accept-Encoding = %q",
+			acceptEncoding,
+		)
 	}
 }
 
-func TestRunnerRefusesTruncatedRequestBody(t *testing.T) {
+func TestRunnerRefusesTruncatedRequestBody(
+	t *testing.T,
+) {
 	called := false
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
+
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(
+				http.ResponseWriter,
+				*http.Request,
+			) {
+				called = true
+			},
+		),
+	)
 	defer server.Close()
-	target, _ := url.Parse(server.URL)
-	ex := recording.Exchange{
+
+	target, _ := url.Parse(
+		server.URL,
+	)
+
+	exchange := recording.Exchange{
 		ID: 3,
 		Request: recording.Request{
 			Method:       http.MethodPost,
@@ -143,26 +327,61 @@ func TestRunnerRefusesTruncatedRequestBody(t *testing.T) {
 			Complete:     true,
 		},
 	}
-	results, err := (Runner{Source: fakeSource{ex}}).Run(context.Background(), target, nil)
+
+	results, err := (Runner{
+		Source: fakeSource{
+			exchange: exchange,
+		},
+	}).Run(
+		context.Background(),
+		target,
+		nil,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 || results[0].Err == nil || !strings.Contains(results[0].Err.Error(), "truncated") {
-		t.Fatalf("results = %#v", results)
+
+	if len(results) != 1 ||
+		results[0].Err == nil ||
+		!strings.Contains(
+			results[0].Err.Error(),
+			"truncated",
+		) {
+		t.Fatalf(
+			"results = %#v",
+			results,
+		)
 	}
+
 	if called {
-		t.Fatal("request with a truncated body was sent")
+		t.Fatal(
+			"request with a truncated body was sent",
+		)
 	}
 }
 
-func TestRunnerRefusesIncompleteRequestBody(t *testing.T) {
+func TestRunnerRefusesIncompleteRequestBody(
+	t *testing.T,
+) {
 	called := false
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		called = true
-	}))
+
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(
+				http.ResponseWriter,
+				*http.Request,
+			) {
+				called = true
+			},
+		),
+	)
 	defer server.Close()
-	target, _ := url.Parse(server.URL)
-	ex := recording.Exchange{
+
+	target, _ := url.Parse(
+		server.URL,
+	)
+
+	exchange := recording.Exchange{
 		ID: 4,
 		Request: recording.Request{
 			Method:       http.MethodPost,
@@ -173,16 +392,33 @@ func TestRunnerRefusesIncompleteRequestBody(t *testing.T) {
 		},
 	}
 
-	results, err := (Runner{Source: fakeSource{ex}}).Run(context.Background(), target, nil)
+	results, err := (Runner{
+		Source: fakeSource{
+			exchange: exchange,
+		},
+	}).Run(
+		context.Background(),
+		target,
+		nil,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 || results[0].Err == nil ||
-		results[0].Err.Error() != "cannot replay exchange: request body was incomplete" {
-		t.Fatalf("results = %#v", results)
+
+	if len(results) != 1 ||
+		results[0].Err == nil ||
+		results[0].Err.Error() !=
+			"cannot replay exchange: request body was incomplete" {
+		t.Fatalf(
+			"results = %#v",
+			results,
+		)
 	}
+
 	if called {
-		t.Fatal("request with an incomplete body was sent")
+		t.Fatal(
+			"request with an incomplete body was sent",
+		)
 	}
 }
 
@@ -487,22 +723,7 @@ func (*failingReadCloser) Close() error {
 func TestRunnerRunEachPreservesPartialResponseOnReadFailure(
 	t *testing.T,
 ) {
-	client := &http.Client{
-		Transport: roundTripFunc(
-			func(
-				*http.Request,
-			) (*http.Response, error) {
-				return &http.Response{
-					StatusCode: http.StatusOK,
-					Status:     "200 OK",
-					Header: http.Header{
-						"X-Test": {"yes"},
-					},
-					Body: &failingReadCloser{},
-				}, nil
-			},
-		),
-	}
+	client := failingResponseClient()
 
 	target, err := url.Parse(
 		"http://example.test",
@@ -593,5 +814,169 @@ func TestRunnerRunEachPreservesPartialResponseOnReadFailure(
 		t.Fatal(
 			"fully retained partial stream was incorrectly marked truncated",
 		)
+	}
+}
+
+func TestRunnerCompactResultDoesNotExposePartialResponseStatus(
+	t *testing.T,
+) {
+	client := failingResponseClient()
+
+	target, err := url.Parse(
+		"http://example.test",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	exchange := recording.Exchange{
+		ID: 10,
+		Request: recording.Request{
+			Method:   http.MethodGet,
+			URL:      "/broken",
+			Complete: true,
+		},
+	}
+
+	results, err := (Runner{
+		Source: fakeSource{
+			exchange: exchange,
+		},
+		Client: client,
+	}).Run(
+		context.Background(),
+		target,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf(
+			"len(results) = %d, want 1",
+			len(results),
+		)
+	}
+
+	result := results[0]
+
+	if result.Err == nil {
+		t.Fatal(
+			"result error = nil, want response read failure",
+		)
+	}
+
+	if result.StatusCode != 0 {
+		t.Fatalf(
+			"StatusCode = %d, want 0",
+			result.StatusCode,
+		)
+	}
+
+	if result.Status != "" {
+		t.Fatalf(
+			"Status = %q, want empty",
+			result.Status,
+		)
+	}
+}
+
+func TestCompactReplayDoesNotRetainResponseBody(
+	t *testing.T,
+) {
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(
+				w http.ResponseWriter,
+				_ *http.Request,
+			) {
+				_, _ = io.WriteString(
+					w,
+					"response body that compact replay does not need",
+				)
+			},
+		),
+	)
+	defer server.Close()
+
+	target, err := url.Parse(
+		server.URL,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	exchange := recording.Exchange{
+		ID: 11,
+		Request: recording.Request{
+			Method:   http.MethodGet,
+			URL:      "/resource",
+			Complete: true,
+		},
+	}
+
+	execution := execute(
+		context.Background(),
+		server.Client(),
+		target,
+		exchange,
+		DefaultResponseBodyCaptureLimit,
+		false,
+	)
+
+	if execution.Err != nil {
+		t.Fatalf(
+			"execution error = %v",
+			execution.Err,
+		)
+	}
+
+	if execution.Response == nil {
+		t.Fatal(
+			"execution response = nil",
+		)
+	}
+
+	if execution.Response.StatusCode != http.StatusOK {
+		t.Fatalf(
+			"StatusCode = %d, want %d",
+			execution.Response.StatusCode,
+			http.StatusOK,
+		)
+	}
+
+	if len(execution.Response.Body) != 0 {
+		t.Fatalf(
+			"retained body length = %d, want 0",
+			len(execution.Response.Body),
+		)
+	}
+
+	if !execution.Response.Complete {
+		t.Fatal(
+			"successfully drained response was not marked complete",
+		)
+	}
+}
+
+func failingResponseClient() *http.Client {
+	return &http.Client{
+		Transport: roundTripFunc(
+			func(
+				*http.Request,
+			) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Status:     "200 OK",
+					Header: http.Header{
+						"X-Test": {
+							"yes",
+						},
+					},
+					Body: &failingReadCloser{},
+				}, nil
+			},
+		),
 	}
 }
