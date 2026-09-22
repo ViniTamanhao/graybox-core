@@ -187,9 +187,14 @@ func (r Runner) responseBodyLimit() int64 {
 
 func (e Execution) result() Result {
 	statusCode := 0
+	status := ""
 
-	if e.Response != nil {
+	// Preserve the existing compact replay contract: a replay that did not
+	// complete successfully does not report an HTTP status through Result,
+	// even if Execution retained partial HTTP evidence for richer consumers.
+	if e.Err == nil && e.Response != nil {
 		statusCode = e.Response.StatusCode
+		status = e.Status
 	}
 
 	return Result{
@@ -198,7 +203,7 @@ func (e Execution) result() Result {
 		Path:       e.Path,
 		TargetURL:  e.TargetURL,
 		StatusCode: statusCode,
-		Status:     e.Status,
+		Status:     status,
 		Duration:   e.Duration,
 		Err:        e.Err,
 	}
