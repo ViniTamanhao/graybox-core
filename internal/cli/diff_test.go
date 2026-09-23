@@ -793,7 +793,7 @@ func TestDiffFailureDominatesChangedExitCode(
 		t.Fatalf(
 			"exit = %d, want %d",
 			got,
-			ExitNetwork,
+			ExitComparisonFailed,
 		)
 	}
 }
