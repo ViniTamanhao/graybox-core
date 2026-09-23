@@ -64,7 +64,7 @@ Examples:
 	if len(positional) != 1 {
 		return ExitUsage, usageError{"replay requires exactly one recording file"}
 	}
-	if idValue < 0 {
+	if flagWasSet(fs, "id") && idValue <= 0 {
 		return ExitUsage, usageError{"--id must be a positive integer"}
 	}
 	store, err := storage.OpenReadOnly(ctx, positional[0])

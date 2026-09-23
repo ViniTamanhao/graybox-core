@@ -228,7 +228,7 @@ Examples:
 		}
 	}
 
-	if idValue < 0 {
+	if flagWasSet(fs, "id") && idValue <= 0 {
 		return ExitUsage, usageError{
 			"--id must be a positive integer",
 		}
@@ -554,7 +554,7 @@ func diffExitCode(
 	summary := report.Summary()
 
 	if summary.Failed > 0 {
-		return ExitNetwork
+		return ExitComparisonFailed
 	}
 
 	if summary.Changed > 0 {

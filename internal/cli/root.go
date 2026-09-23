@@ -29,9 +29,14 @@ const (
 	ExitBehaviorChanged = 1
 
 	ExitInvalidRecording = 2
-	ExitNetwork          = 3
-	ExitUsage            = 4
-	ExitInternal         = 5
+
+	ExitNetwork = 3
+	// ExitComparisonFailed means one or more diff comparisons could not be
+	// completed. It shares code 3 with a single replay execution failure.
+	ExitComparisonFailed = 3
+
+	ExitUsage    = 4
+	ExitInternal = 5
 )
 
 // App is a testable Graybox command-line application.
@@ -364,4 +369,21 @@ func parseID(
 	}
 
 	return id, nil
+}
+
+func flagWasSet(
+	fs *flag.FlagSet,
+	name string,
+) bool {
+	found := false
+
+	fs.Visit(
+		func(item *flag.Flag) {
+			if item.Name == name {
+				found = true
+			}
+		},
+	)
+
+	return found
 }

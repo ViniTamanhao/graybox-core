@@ -286,3 +286,113 @@ func TestParseTargetExplainsMissingScheme(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestReplayRejectsNonPositiveExplicitID(
+	t *testing.T,
+) {
+	for _, value := range []string{
+		"0",
+		"-1",
+	} {
+		t.Run(
+			value,
+			func(t *testing.T) {
+				var stdout bytes.Buffer
+				var stderr bytes.Buffer
+
+				code := (App{
+					Stdout: &stdout,
+					Stderr: &stderr,
+				}).Run(
+					context.Background(),
+					[]string{
+						"replay",
+						"unused.graybox",
+						"--id",
+						value,
+					},
+				)
+
+				if code != ExitUsage {
+					t.Fatalf(
+						"exit = %d, want %d",
+						code,
+						ExitUsage,
+					)
+				}
+
+				if stdout.Len() != 0 {
+					t.Fatalf(
+						"stdout = %q, want empty",
+						stdout.String(),
+					)
+				}
+
+				if !strings.Contains(
+					stderr.String(),
+					"--id must be a positive integer",
+				) {
+					t.Fatalf(
+						"stderr = %q",
+						stderr.String(),
+					)
+				}
+			},
+		)
+	}
+}
+
+func TestDiffRejectsNonPositiveExplicitID(
+	t *testing.T,
+) {
+	for _, value := range []string{
+		"0",
+		"-1",
+	} {
+		t.Run(
+			value,
+			func(t *testing.T) {
+				var stdout bytes.Buffer
+				var stderr bytes.Buffer
+
+				code := (App{
+					Stdout: &stdout,
+					Stderr: &stderr,
+				}).Run(
+					context.Background(),
+					[]string{
+						"diff",
+						"unused.graybox",
+						"--id",
+						value,
+					},
+				)
+
+				if code != ExitUsage {
+					t.Fatalf(
+						"exit = %d, want %d",
+						code,
+						ExitUsage,
+					)
+				}
+
+				if stdout.Len() != 0 {
+					t.Fatalf(
+						"stdout = %q, want empty",
+						stdout.String(),
+					)
+				}
+
+				if !strings.Contains(
+					stderr.String(),
+					"--id must be a positive integer",
+				) {
+					t.Fatalf(
+						"stderr = %q",
+						stderr.String(),
+					)
+				}
+			},
+		)
+	}
+}
