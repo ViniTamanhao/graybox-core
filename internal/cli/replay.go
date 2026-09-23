@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
-	"net/url"
-	"strings"
 	"time"
 
 	"github.com/ViniTamanhao/graybox-core/internal/replay"
@@ -67,7 +64,7 @@ Examples:
 	if len(positional) != 1 {
 		return ExitUsage, usageError{"replay requires exactly one recording file"}
 	}
-	if idValue < 0 {
+	if flagWasSet(fs, "id") && idValue <= 0 {
 		return ExitUsage, usageError{"--id must be a positive integer"}
 	}
 	store, err := storage.OpenReadOnly(ctx, positional[0])
@@ -75,20 +72,17 @@ Examples:
 		return classifyError(err), fmt.Errorf("cannot open recording %q: %w", positional[0], err)
 	}
 	defer store.Close()
-	usingOriginal := targetValue == ""
-	if usingOriginal {
-		targetValue, err = store.Metadata(ctx, "target_url")
-		if err != nil {
-			return ExitUsage, usageError{"recording has no original target; provide --target"}
-		}
-	}
-	target, err := parseTarget(targetValue)
+
+	target, err := resolveExecutionTarget(
+		ctx,
+		store,
+		targetValue,
+		unsafeOriginalTarget,
+	)
 	if err != nil {
-		return ExitUsage, err
+		return classifyError(err), err
 	}
-	if usingOriginal && !unsafeOriginalTarget && !isLoopbackTarget(target) {
-		return ExitUsage, usageError{fmt.Sprintf("recording target %q is not loopback; provide --target or explicitly allow --unsafe-original-target", target)}
-	}
+
 	var selectedID *int64
 	if idValue > 0 {
 		selectedID = &idValue
@@ -141,13 +135,4 @@ Examples:
 		return ExitReplayFailed, nil
 	}
 	return ExitSuccess, nil
-}
-
-func isLoopbackTarget(target *url.URL) bool {
-	host := strings.TrimSuffix(strings.ToLower(target.Hostname()), ".")
-	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }
