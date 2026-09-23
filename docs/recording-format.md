@@ -1,6 +1,6 @@
 # Graybox recording format
 
-This document describes schema version 1, released by Graybox V0 (`v0.1.0`). A `.graybox` file is an ordinary SQLite 3 database. Future incompatible representation or table changes require a new schema version; V0 has no migration framework because there are no earlier public schemas to migrate.
+This document describes schema version 1, introduced by Graybox V0 (`v0.1.0`) and still used by V1 (`v0.2.0`). A `.graybox` file is an ordinary SQLite 3 database. Semantic diffing does not change the recording representation. Future incompatible representation or table changes require a new schema version; Graybox currently has no migration framework because there are no earlier public schemas to migrate.
 
 ## Version and metadata
 
@@ -9,13 +9,13 @@ The `metadata` table is a string key/value map. The first four keys are required
 | Key | Meaning |
 | --- | --- |
 | `format` | literal `graybox` |
-| `schema_version` | decimal schema version; V0 writes `1` |
+| `schema_version` | decimal schema version; V0 and V1 write `1` |
 | `created_at` | UTC RFC 3339 timestamp with nanosecond precision |
 | `graybox_version` | CLI version that created the file |
 | `target_url` | original upstream target, added by `graybox record` |
 | `body_capture_limit` | maximum retained bytes per request or response body, added by `graybox record` |
 
-Readers reject missing required Graybox metadata and unsupported schema versions. Future versions can migrate based on `schema_version`; V0 deliberately has no larger migration framework.
+Readers reject missing required Graybox metadata and unsupported schema versions. Future versions can migrate based on `schema_version`; Graybox deliberately has no larger migration framework today.
 
 ## Schema
 
@@ -87,7 +87,7 @@ CREATE INDEX exchanges_status_idx ON exchanges(response_status);
 ## Representation
 
 - `exchanges.id` is the stable numeric exchange ID used for lookup. SQLite assigns IDs in capture completion order; list output is ordered by `started_at` and then ID.
-- `protocol` is `http` in V0. HTTP version-specific framing, including HTTP/2 framing, is not part of the recorded domain model.
+- `protocol` is currently `http`. HTTP version-specific framing, including HTTP/2 framing, is not part of the recorded domain model.
 - `request_url` is the origin-form request URI: escaped path plus the raw query representation. Graybox deliberately preserves that raw representation through capture and replay, including unusual semicolons or percent encoding, because debugging fidelity takes priority over query normalization. The replay target supplies scheme and authority.
 - `started_at` and `completed_at` are UTC RFC 3339 timestamps with nanosecond precision.
 - `duration_ns` is total proxy-observed duration in nanoseconds.
@@ -101,21 +101,23 @@ Capture truncation and stream completion are independent. In particular, `trunca
 
 The capture limit bounds memory use per in-flight body without truncating traffic sent through the proxy. `show` exposes both size fields and both states. Replay refuses a truncated or incomplete request body because neither can be reproduced safely. Response completeness does not prevent replay of a complete, non-truncated request.
 
-The CLI reuses `target_url` automatically only for `localhost`, `*.localhost`, and loopback IP addresses; remote replay requires an explicit target or unsafe acknowledgement. Replay does not follow redirects, introduce implicit compression/decompression, transmit redacted credentials, or forward recorded hop-by-hop headers.
+The CLI reuses `target_url` automatically for replay and diff only when it names `localhost`, a `*.localhost` host, or a loopback IP address. A remote saved target requires an explicit `--target` or `--unsafe-original-target`. Replay and diff do not follow redirects, introduce implicit compression/decompression, transmit redacted credentials, or forward recorded hop-by-hop headers.
 
 ## Redaction
 
-Before persistence, V0 replaces every value of these request or response headers with the literal `<REDACTED>`:
+Before persistence, Graybox replaces every value of these request or response headers with the literal `<REDACTED>`:
 
 - `Authorization`
 - `Proxy-Authorization`
 - `Cookie`
 - `Set-Cookie`
 
-Matching is case-insensitive. The number of repeated values remains visible. V0 does not sanitize bodies, URLs, arbitrary headers, or application-specific secrets. A recording must therefore be treated as sensitive even after automatic redaction.
+Matching is case-insensitive. The number of repeated values remains visible. Graybox does not sanitize bodies, URLs, arbitrary headers, or application-specific secrets. A recording must therefore be treated as sensitive even after automatic redaction.
 
-Replay omits a complete header if any of its recorded values is `<REDACTED>`; it never transmits that marker as a credential.
+Replay and diff omit a complete request header if any of its recorded values is `<REDACTED>`; neither command transmits that marker as a credential.
 
 ## Compatibility expectations
 
-Format readers must check `format`, `schema_version`, the required creation/version metadata, and all required tables, columns, indexes, and body constraints before reading exchange data. Graybox rejects incomplete schema-1 files and validates body metadata again when reading. The format was corrected in place before the public `v0.1.0` release; incompatible pre-release schema-1 prototypes are invalid. Schema 1 is the stable public V0 format at `v0.1.0`. New optional metadata keys may be added without changing the schema version, but incompatible table or representation changes after release require a schema-version change.
+Format readers must check `format`, `schema_version`, the required creation/version metadata, and all required tables, columns, indexes, and body constraints before reading exchange data. Graybox rejects incomplete schema-1 files and validates body metadata again when reading. The format was corrected in place before the public `v0.1.0` release; incompatible pre-release schema-1 prototypes are invalid.
+
+Schema 1 was introduced by V0 at `v0.1.0` and remains current for V1 at `v0.2.0`. V1 semantic diffing requires no schema change. New optional metadata keys may be added without changing the schema version; for example, diff falls back to its default replay response capture limit when an older schema-1 recording lacks `body_capture_limit`. Any future incompatible representation or table change requires a new schema version.
