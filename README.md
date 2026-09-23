@@ -2,11 +2,11 @@
 
 A local-first API flight recorder and behavioral debugger for developers and AI coding agents.
 
-Graybox captures HTTP traffic into portable `.graybox` recordings that can be inspected and replayed without a cloud service, daemon, account, or privileged network access.
+Graybox captures HTTP traffic into portable `.graybox` recordings that can be inspected, replayed, and compared against current application behavior without a cloud service, daemon, account, or privileged network access.
 
 **Record what happened. Reproduce it. Understand it.**
 
-> **Status:** Graybox V0 (`v0.1.0`). Recording schema 1 is the first public format; future incompatible recording changes require a new schema version.
+> **Status:** Graybox V1 (`v0.2.0`) adds semantic response diffing. Recording schema 1 remains current and compatible with V0 recordings.
 
 ```console
 $ graybox record --target http://localhost:8080 --output bug.graybox
@@ -51,7 +51,7 @@ go build -o graybox ./cmd/graybox
 Release builds can inject a version:
 
 ```bash
-go build -ldflags "-X main.version=v0.1.0" -o graybox ./cmd/graybox
+go build -ldflags "-X main.version=v0.2.0" -o graybox ./cmd/graybox
 ```
 
 ## Quick start
@@ -118,18 +118,51 @@ graybox replay example.graybox \
   --target http://localhost:8081
 ```
 
-Replay preserves the method, escaped path, raw query representation, request body when fully captured and complete, and ordinary effective outbound request headers. Graybox deliberately preserves unusual raw queries—including semicolons and percent encoding—for debugging fidelity. A path prefix in `--target` is prepended, and the target supplies the replay `Host`. Graybox omits content length, connection, transfer-encoding, other hop-by-hop headers, and any header with a redacted value. HTTP response status codes are reported but are not compared with the recording in V0.
+Replay preserves the method, escaped path, raw query representation, request body when fully captured and complete, and ordinary effective outbound request headers. Graybox deliberately preserves unusual raw queries—including semicolons and percent encoding—for debugging fidelity. A path prefix in `--target` is prepended, and the target supplies the replay `Host`. Graybox omits content length, connection, transfer-encoding, other hop-by-hop headers, and any header with a redacted value. `graybox replay` reports the observed response without judging equivalence; use `graybox diff` to compare it with the recorded response.
 
 Graybox follows no redirects during replay: a redirect is the result for that exchange. For safety, an omitted `--target` uses the recorded target only when its host is `localhost`, a `*.localhost` name, or a loopback IP address. To contact any other original target, provide an explicit `--target` or acknowledge the risk with `--unsafe-original-target`. A request whose recorded body was truncated or incomplete is not replayed.
 
+## Compare behavior
+
+Replay every recorded request and compare the current responses with the recorded baseline:
+
+```bash
+graybox diff example.graybox
+```
+
+Replace the saved target when comparing another local instance:
+
+```bash
+graybox diff example.graybox \
+  --target http://localhost:8081
+```
+
+Select one exchange by its stable ID:
+
+```bash
+graybox diff example.graybox --id 2
+```
+
+Ignore a volatile JSON location with an RFC 6901 JSON Pointer:
+
+```bash
+graybox diff example.graybox \
+  --ignore 'response.body#/metadata/request_id'
+```
+
+Diff compares response status, headers, and body. Complete valid JSON bodies are compared semantically: formatting and object key order do not matter, and numeric values are compared exactly. Other complete bodies are compared byte-for-byte. `Date` and `Content-Length` response headers are ignored by default.
+
+Each selected exchange is `equivalent`, `changed`, or `failed`. A failed comparison does not stop later exchanges from being processed. See [Behavioral diffing](docs/diffing.md) for comparison rules, ignore syntax, target safety, output contracts, and exit codes.
+
 ## JSON for scripts and agents
 
-`record`, `ls`, `show`, `replay`, and `version` accept `--json`. Structured data goes to stdout; diagnostics go to stderr. Human and JSON rendering consume the same domain results.
+`record`, `ls`, `show`, `replay`, `diff`, and `version` accept `--json`. Structured data goes to stdout; diagnostics go to stderr. Human and JSON rendering consume the same domain results.
 
 ```bash
 graybox ls example.graybox --json | jq '.exchanges[] | select(.status >= 500)'
 graybox show example.graybox 2 --json | jq '.request.body'
 graybox replay example.graybox --id 2 --json
+graybox diff example.graybox --json | jq '.results[] | select(.outcome == "changed")'
 ```
 
 Bodies have an explicit contract:
@@ -150,7 +183,7 @@ Textual bodies use `"encoding": "utf8"`; binary bodies use `"encoding": "base64"
 
 ## Recording format
 
-A `.graybox` file is SQLite with a normalized, versioned schema. V0 stores metadata, exchanges, repeated request/response headers, bounded request/response BLOB captures, body-size metadata, and proxy errors. You can inspect it directly:
+A `.graybox` file is SQLite with a normalized, versioned schema. Schema 1, introduced by V0, is still used by V1; semantic diffing does not change the recording representation. It stores metadata, exchanges, repeated request/response headers, bounded request/response BLOB captures, body-size metadata, and proxy errors. You can inspect it directly:
 
 ```bash
 sqlite3 example.graybox '.tables'
@@ -161,7 +194,7 @@ See [the recording format](docs/recording-format.md) for the complete schema and
 
 ## Security
 
-Recordings can contain passwords, API keys, personal data, private identifiers, internal URLs, and application payloads. V0 automatically replaces values of `Authorization`, `Proxy-Authorization`, `Cookie`, and `Set-Cookie` headers with `<REDACTED>` before persistence. This is intentionally predictable but **not exhaustive**; secrets in bodies, URLs, and other headers are not removed.
+Recordings can contain passwords, API keys, personal data, private identifiers, internal URLs, and application payloads. Graybox automatically replaces values of `Authorization`, `Proxy-Authorization`, `Cookie`, and `Set-Cookie` headers with `<REDACTED>` before persistence. This is intentionally predictable but **not exhaustive**; secrets in bodies, URLs, and other headers are not removed.
 
 Treat every `.graybox` file as potentially sensitive. Graybox never uploads recordings automatically. Read [SECURITY.md](SECURITY.md) before sharing one.
 
@@ -171,26 +204,28 @@ Treat every `.graybox` file as potentially sensitive. Graybox never uploads reco
 
 | Code | Meaning |
 | ---: | --- |
-| 0 | success |
-| 1 | a multi-request replay completed with one or more failures |
+| 0 | success; for diff, all selected exchanges are equivalent |
+| 1 | diff found changes, or a multi-request replay had failures |
 | 2 | invalid/unsupported recording, or missing exchange |
-| 3 | a single replay could not be executed or completed |
+| 3 | a single replay failed, or one or more diff comparisons failed |
 | 4 | invalid CLI arguments or configuration |
-| 5 | internal/filesystem error, including an incomplete recording caused by persistence failure |
+| 5 | internal/filesystem failure, including an incomplete recording caused by persistence failure |
 
-An HTTP 4xx or 5xx is still a completed replay, not a transport failure.
+Exit-code meaning is command-specific: replay retains its established meaning for code `1`. For diff, `changed != failed`; code `3` takes precedence over code `1` when a run contains both changed and failed exchanges. An HTTP 4xx or 5xx is still a completed replay, not a transport failure.
 
-## V0 scope and limitations
+## V1 scope and limitations
 
-V0 provides `record`, `ls`, `show`, and sequential `replay` for ordinary HTTP/1.x application traffic, plus `version` and `help`. It uses an explicit reverse proxy. Requests and responses stream through it; by default Graybox retains at most 10 MiB from each body and records observed size, retained size, capture truncation, and stream completion independently. Change this bound with `record --body-limit BYTES`.
+V1 provides `record`, `ls`, `show`, sequential `replay`, `diff`, `version`, and `help` for ordinary HTTP/1.x application traffic. It uses an explicit reverse proxy. Requests and responses stream through it; by default Graybox retains at most 10 MiB from each body and records observed size, retained size, capture truncation, and stream completion independently. Change this bound with `record --body-limit BYTES`.
 
-V0 has no semantic diffing, mock server, configurable sanitizer, query language, daemon, web UI, packet capture, transparent proxy, WebSocket recording, SSE-specific behavior, gRPC decoding, cloud service, tracing system, or embedded AI calls.
+Diff compares response status, headers, and body in that order. Complete valid JSON is compared semantically: object order and formatting do not matter, `1`, `1.0`, and `1e0` are equivalent, missing values differ from explicit `null`, and arrays are positional. Other complete bodies are compared byte-for-byte. Durations are reported as observations and do not affect equivalence. Incomplete or truncated response-body evidence cannot establish equivalence unless `response.body` is ignored.
+
+V1 does not provide unordered-array matching, numeric tolerances, regex comparison rules, JSONPath, schema validation, custom comparison scripts, or performance thresholds. Broader non-goals remain: no mock server, configurable sanitizer, query language, daemon, web UI, packet capture, transparent proxy, WebSocket recording, SSE-specific semantics, gRPC decoding, cloud service, tracing, or embedded AI calls.
 
 ## Roadmap
 
-- **V0:** record, list, inspect, and replay HTTP exchanges.
-- **V1:** semantic response diffing.
-- **Later:** richer sanitization, mocking, querying, gRPC awareness, and agent/MCP integrations.
+- **V0 (`v0.1.0`):** record, list, inspect, replay.
+- **V1 (`v0.2.0`):** semantic response diffing.
+- **Later:** richer sanitization, mocking, querying, regression suites, CI integrations, gRPC, agent/MCP integrations.
 
 Dates are deliberately not promised; the next feature should follow real recorder/debugger use.
 
