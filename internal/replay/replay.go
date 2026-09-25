@@ -71,9 +71,10 @@ type VisitFunc func(recording.Exchange, Execution) error
 
 // Runner replays requests sequentially with an HTTP client.
 type Runner struct {
-	Source            Source
-	Client            *http.Client
-	ResponseBodyLimit int64
+	Source                 Source
+	Client                 *http.Client
+	ResponseBodyLimit      int64
+	RequestHeaderOverrides http.Header
 }
 
 // Run replays all exchanges, or only id when it is non-nil.
@@ -160,6 +161,7 @@ func (r Runner) runEach(
 				client,
 				target,
 				exchange,
+				r.RequestHeaderOverrides,
 				bodyLimit,
 				captureBody,
 			),
@@ -192,6 +194,7 @@ func (r Runner) runEach(
 				client,
 				target,
 				exchange,
+				r.RequestHeaderOverrides,
 				bodyLimit,
 				captureBody,
 			),
@@ -273,6 +276,7 @@ func execute(
 	client *http.Client,
 	target *url.URL,
 	exchange recording.Exchange,
+	requestHeaderOverrides http.Header,
 	bodyLimit int64,
 	captureBody bool,
 ) Execution {
@@ -324,6 +328,11 @@ func execute(
 	copyReplayHeaders(
 		request.Header,
 		exchange.Request.Headers,
+	)
+
+	applyRequestHeaderOverrides(
+		request.Header,
+		requestHeaderOverrides,
 	)
 
 	started := time.Now()
@@ -511,6 +520,26 @@ func copyReplayHeaders(
 		if redacted {
 			continue
 		}
+
+		for _, value := range values {
+			dst.Add(
+				name,
+				value,
+			)
+		}
+	}
+}
+
+func applyRequestHeaderOverrides(
+	dst,
+	overrides http.Header,
+) {
+	for name, values := range overrides {
+		if len(values) == 0 {
+			continue
+		}
+
+		dst.Del(name)
 
 		for _, value := range values {
 			dst.Add(

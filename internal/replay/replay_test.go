@@ -210,6 +210,286 @@ func TestRunnerPreservesRequestAndOmitsUnsafeHeaders(
 	}
 }
 
+func TestRunnerAppliesRequestHeaderOverrides(
+	t *testing.T,
+) {
+	var receivedHeaders http.Header
+
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(
+				w http.ResponseWriter,
+				r *http.Request,
+			) {
+				receivedHeaders = r.Header.Clone()
+
+				w.WriteHeader(
+					http.StatusNoContent,
+				)
+			},
+		),
+	)
+	defer server.Close()
+
+	target, err := url.Parse(
+		server.URL,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	recordedHeaders := make(http.Header)
+
+	recordedHeaders.Set(
+		"Authorization",
+		sanitize.RedactedValue,
+	)
+	recordedHeaders.Set(
+		"X-API-Key",
+		"recorded-api-key",
+	)
+	recordedHeaders.Set(
+		"X-Recorded",
+		"recorded-value",
+	)
+
+	exchange := recording.Exchange{
+		ID: 12,
+		Request: recording.Request{
+			Method:   http.MethodGet,
+			URL:      "/authenticated",
+			Complete: true,
+			Headers:  recordedHeaders,
+		},
+	}
+
+	overrides := make(http.Header)
+
+	overrides.Set(
+		"Authorization",
+		"Bearer runtime-token",
+	)
+	overrides.Set(
+		"X-API-Key",
+		"runtime-api-key",
+	)
+	overrides.Set(
+		"X-Recorded",
+		"runtime-value",
+	)
+
+	overrides["X-Multi"] = []string{
+		"one",
+		"two",
+	}
+
+	results, err := (Runner{
+		Source: fakeSource{
+			exchange: exchange,
+		},
+		Client:                 server.Client(),
+		RequestHeaderOverrides: overrides,
+	}).Run(
+		context.Background(),
+		target,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf(
+			"len(results) = %d, want 1",
+			len(results),
+		)
+	}
+
+	if results[0].Err != nil {
+		t.Fatalf(
+			"replay error = %v",
+			results[0].Err,
+		)
+	}
+
+	if results[0].StatusCode != http.StatusNoContent {
+		t.Fatalf(
+			"status = %d, want %d",
+			results[0].StatusCode,
+			http.StatusNoContent,
+		)
+	}
+
+	if got := receivedHeaders.Get(
+		"Authorization",
+	); got != "Bearer runtime-token" {
+		t.Fatalf(
+			"Authorization = %q, want runtime value",
+			got,
+		)
+	}
+
+	if got := receivedHeaders.Get(
+		"X-API-Key",
+	); got != "runtime-api-key" {
+		t.Fatalf(
+			"X-API-Key = %q, want runtime value",
+			got,
+		)
+	}
+
+	if got := receivedHeaders.Get(
+		"X-Recorded",
+	); got != "runtime-value" {
+		t.Fatalf(
+			"X-Recorded = %q, want runtime value",
+			got,
+		)
+	}
+
+	gotMulti := receivedHeaders.Values(
+		"X-Multi",
+	)
+
+	if len(gotMulti) != 2 ||
+		gotMulti[0] != "one" ||
+		gotMulti[1] != "two" {
+		t.Fatalf(
+			"X-Multi = %#v, want [one two]",
+			gotMulti,
+		)
+	}
+
+	if got := exchange.Request.Headers.Get(
+		"Authorization",
+	); got != sanitize.RedactedValue {
+		t.Fatalf(
+			"recorded Authorization mutated to %q",
+			got,
+		)
+	}
+
+	if got := exchange.Request.Headers.Get(
+		"X-API-Key",
+	); got != "recorded-api-key" {
+		t.Fatalf(
+			"recorded X-API-Key mutated to %q",
+			got,
+		)
+	}
+}
+
+func TestRunnerRequestHeaderOverridesPreserveUnmodifiedRecordedHeaders(
+	t *testing.T,
+) {
+	var receivedHeaders http.Header
+
+	server := httptest.NewServer(
+		http.HandlerFunc(
+			func(
+				w http.ResponseWriter,
+				r *http.Request,
+			) {
+				receivedHeaders = r.Header.Clone()
+
+				w.WriteHeader(
+					http.StatusOK,
+				)
+			},
+		),
+	)
+	defer server.Close()
+
+	target, err := url.Parse(
+		server.URL,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	recordedHeaders := make(http.Header)
+
+	recordedHeaders.Set(
+		"Accept",
+		"application/json",
+	)
+	recordedHeaders.Set(
+		"X-Recorded",
+		"keep-me",
+	)
+	recordedHeaders.Set(
+		"Authorization",
+		sanitize.RedactedValue,
+	)
+
+	exchange := recording.Exchange{
+		ID: 13,
+		Request: recording.Request{
+			Method:   http.MethodGet,
+			URL:      "/resource",
+			Complete: true,
+			Headers:  recordedHeaders,
+		},
+	}
+
+	overrides := make(http.Header)
+
+	overrides.Set(
+		"Authorization",
+		"Bearer runtime-token",
+	)
+
+	results, err := (Runner{
+		Source: fakeSource{
+			exchange: exchange,
+		},
+		Client:                 server.Client(),
+		RequestHeaderOverrides: overrides,
+	}).Run(
+		context.Background(),
+		target,
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(results) != 1 ||
+		results[0].Err != nil {
+		t.Fatalf(
+			"results = %#v",
+			results,
+		)
+	}
+
+	if got := receivedHeaders.Get(
+		"Authorization",
+	); got != "Bearer runtime-token" {
+		t.Fatalf(
+			"Authorization = %q, want runtime value",
+			got,
+		)
+	}
+
+	if got := receivedHeaders.Get(
+		"Accept",
+	); got != "application/json" {
+		t.Fatalf(
+			"Accept = %q, want recorded value",
+			got,
+		)
+	}
+
+	if got := receivedHeaders.Get(
+		"X-Recorded",
+	); got != "keep-me" {
+		t.Fatalf(
+			"X-Recorded = %q, want recorded value",
+			got,
+		)
+	}
+}
+
 func TestRunnerStopsAtRedirectAndDoesNotInjectCompression(
 	t *testing.T,
 ) {
@@ -921,6 +1201,7 @@ func TestCompactReplayDoesNotRetainResponseBody(
 		server.Client(),
 		target,
 		exchange,
+		nil,
 		DefaultResponseBodyCaptureLimit,
 		false,
 	)
