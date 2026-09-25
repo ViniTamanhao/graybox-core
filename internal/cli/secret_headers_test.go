@@ -318,7 +318,7 @@ func TestSecretRedactorHandlesHumanJSONAndErrors(
 
 	var output bytes.Buffer
 
-	err := redactor.writeOutput(
+	err := redactor.writeJSONOutput(
 		&output,
 		func(
 			writer io.Writer,
@@ -355,41 +355,24 @@ func TestSecretRedactorHandlesHumanJSONAndErrors(
 		)
 	}
 
-	encoded, err := json.Marshal(
-		secret,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	var decoded map[string]string
 
-	escapedSecret := string(
-		encoded[1 : len(encoded)-1],
-	)
-
-	if strings.Contains(
-		output.String(),
-		escapedSecret,
-	) {
+	if err := json.Unmarshal(
+		output.Bytes(),
+		&decoded,
+	); err != nil {
 		t.Fatalf(
-			"JSON output leaked escaped secret: %q",
+			"decode redacted JSON: %v\n%s",
+			err,
 			output.String(),
 		)
 	}
 
-	escapedWithoutHTML, err := jsonStringWithoutHTMLEscaping(
-		secret,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if strings.Contains(
-		output.String(),
-		escapedWithoutHTML,
-	) {
+	if got := decoded["value"]; got != sanitize.RedactedValue {
 		t.Fatalf(
-			"JSON output leaked non-HTML-escaped secret: %q",
-			output.String(),
+			"redacted JSON value = %q, want %q",
+			got,
+			sanitize.RedactedValue,
 		)
 	}
 
@@ -421,6 +404,118 @@ func TestSecretRedactorHandlesHumanJSONAndErrors(
 	) {
 		t.Fatal(
 			"redacted error did not preserve its error chain",
+		)
+	}
+}
+
+func TestSecretRedactorJSONOnlyRedactsStringValues(
+	t *testing.T,
+) {
+	const secret = "1"
+
+	redactor := newSecretRedactor(
+		[]string{
+			secret,
+		},
+	)
+
+	var output bytes.Buffer
+
+	err := redactor.writeJSONOutput(
+		&output,
+		func(
+			writer io.Writer,
+		) error {
+			return json.NewEncoder(
+				writer,
+			).Encode(
+				map[string]any{
+					"exchange_id": 1,
+					"total":       1,
+					"successful":  true,
+					"missing":     nil,
+					"echo":        secret,
+					"message":     "token=1",
+				},
+			)
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !json.Valid(
+		output.Bytes(),
+	) {
+		t.Fatalf(
+			"JSON became invalid after redaction: %q",
+			output.String(),
+		)
+	}
+
+	var decoded struct {
+		ExchangeID int    `json:"exchange_id"`
+		Total      int    `json:"total"`
+		Successful bool   `json:"successful"`
+		Missing    any    `json:"missing"`
+		Echo       string `json:"echo"`
+		Message    string `json:"message"`
+	}
+
+	if err := json.Unmarshal(
+		output.Bytes(),
+		&decoded,
+	); err != nil {
+		t.Fatalf(
+			"decode JSON: %v\n%s",
+			err,
+			output.String(),
+		)
+	}
+
+	if decoded.ExchangeID != 1 {
+		t.Fatalf(
+			"exchange_id = %d, want 1",
+			decoded.ExchangeID,
+		)
+	}
+
+	if decoded.Total != 1 {
+		t.Fatalf(
+			"total = %d, want 1",
+			decoded.Total,
+		)
+	}
+
+	if !decoded.Successful {
+		t.Fatal(
+			"successful = false, want true",
+		)
+	}
+
+	if decoded.Missing != nil {
+		t.Fatalf(
+			"missing = %#v, want nil",
+			decoded.Missing,
+		)
+	}
+
+	if decoded.Echo != sanitize.RedactedValue {
+		t.Fatalf(
+			"echo = %q, want %q",
+			decoded.Echo,
+			sanitize.RedactedValue,
+		)
+	}
+
+	wantMessage := "token=" +
+		sanitize.RedactedValue
+
+	if decoded.Message != wantMessage {
+		t.Fatalf(
+			"message = %q, want %q",
+			decoded.Message,
+			wantMessage,
 		)
 	}
 }
@@ -962,17 +1057,6 @@ func TestDiffRedactsEchoedRuntimeSecretFromHumanAndJSONOutput(
 		authorization,
 	)
 
-	encodedSecret, err := json.Marshal(
-		authorization,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	escapedSecret := string(
-		encodedSecret[1 : len(encodedSecret)-1],
-	)
-
 	tests := []struct {
 		name string
 		json bool
@@ -1040,16 +1124,6 @@ func TestDiffRedactsEchoedRuntimeSecretFromHumanAndJSONOutput(
 				) {
 					t.Fatalf(
 						"output leaked raw secret: %q",
-						stdout.String(),
-					)
-				}
-
-				if strings.Contains(
-					stdout.String(),
-					escapedSecret,
-				) {
-					t.Fatalf(
-						"output leaked JSON-escaped secret: %q",
 						stdout.String(),
 					)
 				}

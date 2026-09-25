@@ -386,7 +386,6 @@ func newSecretRedactor(
 ) secretRedactor {
 	seen := make(
 		map[string]struct{},
-		len(secrets)*3,
 	)
 
 	var replacements []string
@@ -411,13 +410,13 @@ func newSecretRedactor(
 	}
 
 	for _, secret := range secrets {
-		// Human/plain-text representation.
+		// Plain-text form. This handles normal human output and errors.
 		appendValue(
 			secret,
 		)
 
-		// Standard encoding/json representation. json.Marshal escapes HTML
-		// characters such as &, <, and >.
+		// Human diff values are rendered with json.Marshal, which escapes
+		// quotes and HTML-sensitive characters such as &, <, and >.
 		encoded, err := json.Marshal(
 			secret,
 		)
@@ -430,9 +429,9 @@ func newSecretRedactor(
 			)
 		}
 
-		// Graybox's JSON output may disable HTML escaping. Retain that escaped
-		// representation as well so secrets containing characters such as &
-		// are still removed from machine-readable output.
+		// Keep the non-HTML-escaped JSON representation too. Graybox's
+		// machine JSON writer disables HTML escaping, and this also makes the
+		// redactor robust for other JSON-formatted human strings.
 		encodedWithoutHTMLEscaping, err := jsonStringWithoutHTMLEscaping(
 			secret,
 		)
@@ -458,11 +457,7 @@ func newSecretRedactor(
 		return secretRedactor{}
 	}
 
-	pairs := make(
-		[]string,
-		0,
-		len(replacements)*2,
-	)
+	var pairs []string
 
 	for _, replacement := range replacements {
 		pairs = append(
@@ -527,6 +522,144 @@ func (r secretRedactor) redact(
 	)
 }
 
+func (r secretRedactor) redactJSON(
+	data []byte,
+) ([]byte, error) {
+	if r.replacer == nil {
+		return append(
+			[]byte(nil),
+			data...,
+		), nil
+	}
+
+	if !json.Valid(
+		bytes.TrimSpace(data),
+	) {
+		return nil, fmt.Errorf(
+			"cannot redact invalid JSON output",
+		)
+	}
+
+	var output bytes.Buffer
+
+	for index := 0; index < len(data); {
+		if data[index] != '"' {
+			output.WriteByte(
+				data[index],
+			)
+
+			index++
+
+			continue
+		}
+
+		start := index
+
+		index++
+
+		for index < len(data) {
+			switch data[index] {
+			case '\\':
+				if index+1 >= len(data) {
+					return nil, fmt.Errorf(
+						"unterminated JSON escape",
+					)
+				}
+
+				index += 2
+
+			case '"':
+				index++
+
+				goto stringComplete
+
+			default:
+				index++
+			}
+		}
+
+		return nil, fmt.Errorf(
+			"unterminated JSON string",
+		)
+
+	stringComplete:
+		raw := data[start:index]
+
+		next := index
+
+		for next < len(data) {
+			switch data[next] {
+			case ' ', '\t', '\r', '\n':
+				next++
+
+			default:
+				goto whitespaceComplete
+			}
+		}
+
+	whitespaceComplete:
+		// A JSON string followed by ':' is an object key. Leave keys alone:
+		// runtime secret redaction applies to output values, and rewriting a
+		// coincidentally matching key could silently change the JSON schema.
+		if next < len(data) &&
+			data[next] == ':' {
+			output.Write(
+				raw,
+			)
+
+			continue
+		}
+
+		var decoded string
+
+		if err := json.Unmarshal(
+			raw,
+			&decoded,
+		); err != nil {
+			return nil, fmt.Errorf(
+				"decode JSON string for redaction: %w",
+				err,
+			)
+		}
+
+		redacted := r.redact(
+			decoded,
+		)
+
+		if redacted == decoded {
+			output.Write(
+				raw,
+			)
+
+			continue
+		}
+
+		encoded, err := jsonStringWithoutHTMLEscaping(
+			redacted,
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"encode redacted JSON string: %w",
+				err,
+			)
+		}
+
+		output.WriteByte(
+			'"',
+		)
+
+		output.WriteString(
+			encoded,
+		)
+
+		output.WriteByte(
+			'"',
+		)
+	}
+
+	return output.Bytes(), nil
+}
+
 func (r secretRedactor) redactError(
 	err error,
 ) error {
@@ -559,6 +692,38 @@ func (r secretRedactor) writeOutput(
 		r.redact(
 			output.String(),
 		),
+	)
+
+	return r.redactError(
+		err,
+	)
+}
+
+func (r secretRedactor) writeJSONOutput(
+	writer io.Writer,
+	render func(io.Writer) error,
+) error {
+	var output bytes.Buffer
+
+	if err := render(
+		&output,
+	); err != nil {
+		return r.redactError(
+			err,
+		)
+	}
+
+	redacted, err := r.redactJSON(
+		output.Bytes(),
+	)
+	if err != nil {
+		return r.redactError(
+			err,
+		)
+	}
+
+	_, err = writer.Write(
+		redacted,
 	)
 
 	return r.redactError(

@@ -363,7 +363,7 @@ Examples:
 	}
 
 	if jsonOutput {
-		if err := redactor.writeOutput(
+		if err := redactor.writeJSONOutput(
 			a.Stdout,
 			func(
 				writer io.Writer,
