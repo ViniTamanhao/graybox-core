@@ -107,6 +107,7 @@ func (a App) runDiff(
 	var targetValue string
 	var idValue int64
 	var ignoreValues stringListFlag
+	var secretHeaderValues secretHeaderFlag
 	var jsonOutput bool
 	var unsafeOriginalTarget bool
 	var help bool
@@ -122,10 +123,17 @@ are compared semantically; other bodies are compared exactly.
 
 By default Graybox ignores Date and Content-Length response headers.
 
+Runtime credentials can be supplied explicitly from environment variables with
+--secret-header. Runtime secret values are applied only to outgoing replay
+requests and are never written back to the recording.
+
 Options:
   --id ID            compare only one exchange
   --target URL       replace the original target
   --ignore LOCATION  ignore a response location; may be repeated
+  --secret-header HEADER=ENV_VAR
+                     set a request header from an environment variable;
+                     may be repeated
   --unsafe-original-target
                      allow an omitted --target to use a saved remote target
   --json             emit structured JSON
@@ -142,6 +150,7 @@ Examples:
   graybox diff bug.graybox
   graybox diff bug.graybox --id 42 --target http://localhost:8081
   graybox diff bug.graybox --ignore 'response.body#/metadata/request_id'
+  graybox diff bug.graybox --secret-header Authorization=API_AUTH
   graybox diff bug.graybox --json
 `,
 		)
@@ -169,6 +178,12 @@ Examples:
 	fs.Var(
 		&ignoreValues,
 		"ignore",
+		"",
+	)
+
+	fs.Var(
+		&secretHeaderValues,
+		"secret-header",
 		"",
 	)
 
@@ -228,17 +243,31 @@ Examples:
 		}
 	}
 
-	if flagWasSet(fs, "id") && idValue <= 0 {
+	if flagWasSet(
+		fs,
+		"id",
+	) &&
+		idValue <= 0 {
 		return ExitUsage, usageError{
 			"--id must be a positive integer",
 		}
+	}
+
+	requestHeaderOverrides, redactor, err := resolveSecretHeaders(
+		secretHeaderValues,
+	)
+	if err != nil {
+		return ExitUsage, err
 	}
 
 	rules, ignored, err := buildDiffRules(
 		ignoreValues,
 	)
 	if err != nil {
-		return ExitUsage, err
+		return ExitUsage,
+			redactor.redactError(
+				err,
+			)
 	}
 
 	recordingPath := positional[0]
@@ -248,11 +277,16 @@ Examples:
 		recordingPath,
 	)
 	if err != nil {
-		return classifyError(err), fmt.Errorf(
-			"cannot open recording %q: %w",
-			recordingPath,
-			err,
-		)
+		return classifyError(
+				err,
+			),
+			redactor.redactError(
+				fmt.Errorf(
+					"cannot open recording %q: %w",
+					recordingPath,
+					err,
+				),
+			)
 	}
 
 	defer store.Close()
@@ -264,7 +298,12 @@ Examples:
 		unsafeOriginalTarget,
 	)
 	if err != nil {
-		return classifyError(err), err
+		return classifyError(
+				err,
+			),
+			redactor.redactError(
+				err,
+			)
 	}
 
 	bodyLimit, err := diffResponseBodyLimit(
@@ -272,7 +311,12 @@ Examples:
 		store,
 	)
 	if err != nil {
-		return classifyError(err), err
+		return classifyError(
+				err,
+			),
+			redactor.redactError(
+				err,
+			)
 	}
 
 	var selectedID *int64
@@ -283,8 +327,9 @@ Examples:
 
 	report, err := (diff.Runner{
 		Replayer: replay.Runner{
-			Source:            store,
-			ResponseBodyLimit: bodyLimit,
+			Source:                 store,
+			ResponseBodyLimit:      bodyLimit,
+			RequestHeaderOverrides: requestHeaderOverrides,
 		},
 		Rules: rules,
 	}).Run(
@@ -298,44 +343,72 @@ Examples:
 		storage.ErrNotFound,
 	) &&
 		selectedID != nil {
-		return ExitInvalidRecording, fmt.Errorf(
-			"recording %q has no exchange %d",
-			recordingPath,
-			idValue,
-		)
+		return ExitInvalidRecording,
+			redactor.redactError(
+				fmt.Errorf(
+					"recording %q has no exchange %d",
+					recordingPath,
+					idValue,
+				),
+			)
 	}
 
 	if err != nil {
-		return classifyError(err), err
+		return classifyError(
+				err,
+			),
+			redactor.redactError(
+				err,
+			)
 	}
 
 	if jsonOutput {
-		if err := writeJSON(
+		if err := redactor.writeJSONOutput(
 			a.Stdout,
-			toDiffReportJSON(
-				recordingPath,
-				target.String(),
-				bodyLimit,
-				ignored,
-				report,
-			),
+			func(
+				writer io.Writer,
+			) error {
+				return writeJSON(
+					writer,
+					toDiffReportJSON(
+						recordingPath,
+						target.String(),
+						bodyLimit,
+						ignored,
+						report,
+					),
+				)
+			},
 		); err != nil {
-			return ExitInternal, fmt.Errorf(
-				"write output: %w",
-				err,
-			)
+			return ExitInternal,
+				redactor.redactError(
+					fmt.Errorf(
+						"write output: %w",
+						err,
+					),
+				)
 		}
 	} else {
-		if err := writeDiffHuman(
+		if err := redactor.writeOutput(
 			a.Stdout,
-			target.String(),
-			ignored,
-			report,
+			func(
+				writer io.Writer,
+			) error {
+				return writeDiffHuman(
+					writer,
+					target.String(),
+					ignored,
+					report,
+				)
+			},
 		); err != nil {
-			return ExitInternal, fmt.Errorf(
-				"write output: %w",
-				err,
-			)
+			return ExitInternal,
+				redactor.redactError(
+					fmt.Errorf(
+						"write output: %w",
+						err,
+					),
+				)
 		}
 	}
 
