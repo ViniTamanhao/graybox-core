@@ -24,6 +24,32 @@ graybox diff bug.graybox --id 42
 
 Diffing does not change the recording. It observes the current response and reports whether each selected exchange is `equivalent`, `changed`, or `failed`.
 
+## Authenticated diffing
+
+A recording may contain a redacted `Authorization` header, but replaying an authenticated API requires a current credential. Supply it explicitly from an environment variable:
+
+```bash
+export API_AUTH='Bearer abc123'
+
+graybox diff bug.graybox \
+  --secret-header Authorization=API_AUTH
+```
+
+Mappings use `HEADER=ENV_VAR`. Repeat `--secret-header` to supply multiple headers:
+
+```bash
+export API_AUTH='Bearer abc123'
+export API_KEY='secret-api-key'
+
+graybox diff bug.graybox \
+  --secret-header Authorization=API_AUTH \
+  --secret-header X-API-Key=API_KEY
+```
+
+Credentials are injected only into outgoing replay requests and override the corresponding recorded request headers. They are not persisted in the recording. Graybox does not guess environment variable names; `replay` and `diff` share this mechanism.
+
+Malformed mappings or missing/empty environment variables fail before replay starts or any HTTP request is sent, with usage exit code `4`. Runtime secret values are scrubbed from Graybox-generated human output, JSON output, and errors. See [Security](SECURITY.md) for the full validation rules, output-scrubbing limits, and the distinction from capture-time redaction.
+
 ## What is compared
 
 Comparison proceeds deterministically in this order:
@@ -139,7 +165,7 @@ Target selection follows replay policy:
 - Without `--target`, the saved target is reused automatically only for `localhost`, `*.localhost`, and loopback IP addresses.
 - A saved remote target requires an explicit `--target` or `--unsafe-original-target`.
 - Redirects are returned as the observed response and are not followed.
-- Redacted credentials and hop-by-hop headers are not replayed.
+- Redacted recorded credentials are not restored automatically; current credentials require explicit `--secret-header` mappings. Recorded hop-by-hop headers are not replayed.
 - Truncated or incomplete recorded request bodies are not replayed.
 
 Both `diff` and `replay` can send recorded payloads to a server. Review the recording and destination before running either command against a non-local target.

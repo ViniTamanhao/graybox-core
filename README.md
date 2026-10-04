@@ -145,7 +145,25 @@ Replay and diff can send recorded requests to a server.
 
 When `--target` is omitted, Graybox automatically reuses the recorded target only for localhost and loopback addresses. Remote recorded targets require an explicit `--target` or `--unsafe-original-target`.
 
-Redirects are not followed, redacted credentials are not sent, and truncated or incomplete request bodies are refused.
+Redirects are not followed, redacted recorded credentials are not restored automatically, and truncated or incomplete request bodies are refused.
+
+## Runtime credentials
+
+For authenticated replay or diff, explicitly map a request header to an environment variable with `--secret-header HEADER=ENV_VAR`:
+
+```bash
+export API_AUTH='Bearer abc123'
+
+graybox replay bug.graybox \
+  --secret-header Authorization=API_AUTH
+
+graybox diff bug.graybox \
+  --secret-header Authorization=API_AUTH
+```
+
+The flag may be repeated for multiple headers. Values come from the named environment variables and override corresponding recorded headers only in outgoing requests at runtime; the recording is not modified. Graybox does not guess environment variable names.
+
+Invalid mappings or missing/empty environment variables fail before any HTTP request is sent, with usage exit code `4`. See [Security](docs/SECURITY.md) for validation rules and runtime secret output scrubbing.
 
 ## Security
 
