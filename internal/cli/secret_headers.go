@@ -522,6 +522,44 @@ func (r secretRedactor) redact(
 	)
 }
 
+// redactData copies JSON application data, including keys, without touching
+// Graybox's output structs or changing scalar types. Redacted keys can collide;
+// sort source keys so the output remains deterministic in that case.
+func (r secretRedactor) redactData(value any) any {
+	if r.replacer == nil {
+		return value
+	}
+	switch typed := value.(type) {
+	case string:
+		return r.redact(typed)
+	case map[string]any:
+		if typed == nil {
+			return typed
+		}
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		output := make(map[string]any, len(typed))
+		for _, key := range keys {
+			output[r.redact(key)] = r.redactData(typed[key])
+		}
+		return output
+	case []any:
+		if typed == nil {
+			return typed
+		}
+		output := make([]any, len(typed))
+		for index, item := range typed {
+			output[index] = r.redactData(item)
+		}
+		return output
+	default:
+		return value
+	}
+}
+
 func (r secretRedactor) redactJSON(
 	data []byte,
 ) ([]byte, error) {
@@ -599,7 +637,7 @@ func (r secretRedactor) redactJSON(
 
 	whitespaceComplete:
 		// A JSON string followed by ':' is an object key. Leave keys alone:
-		// runtime secret redaction applies to output values, and rewriting a
+		// application data keys are scrubbed before serialization. Rewriting a
 		// coincidentally matching key could silently change the JSON schema.
 		if next < len(data) &&
 			data[next] == ':' {
