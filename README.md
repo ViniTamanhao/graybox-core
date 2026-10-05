@@ -72,7 +72,7 @@ Ignoring: response.headers.date, response.headers.content-length
 
 ## Install
 
-Graybox requires Go 1.26 or newer when building from source.
+Graybox requires Go 1.26.6 or newer when building from source.
 
 ```bash
 go install github.com/ViniTamanhao/graybox-core/cmd/graybox@latest
