@@ -62,5 +62,9 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Vulnerability check
+        if: runner.os == 'Linux'
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+
       - name: Build
         run: go build ./...

@@ -529,7 +529,7 @@ func canonicalizeJSONNumber(
 	number json.Number,
 ) (canonicalJSONNumber, bool) {
 	raw := number.String()
-	if raw == "" {
+	if raw == "" || strings.TrimSpace(raw) != raw || !json.Valid([]byte(raw)) {
 		return canonicalJSONNumber{}, false
 	}
 

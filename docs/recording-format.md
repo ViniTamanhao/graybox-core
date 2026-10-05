@@ -1,6 +1,6 @@
 # Graybox recording format
 
-This document describes schema version 1, introduced by Graybox V0 (`v0.1.0`) and still used by V1 (`v0.2.0`). A `.graybox` file is an ordinary SQLite 3 database. Semantic diffing does not change the recording representation. Future incompatible representation or table changes require a new schema version; Graybox currently has no migration framework because there are no earlier public schemas to migrate.
+This document describes schema version 1, introduced by Graybox V0 (`v0.1.0`) and still the current Graybox recording format. A `.graybox` file is an ordinary SQLite 3 database. Runtime replay and diff features do not change the persisted representation. Future incompatible representation or table changes require a new schema version; Graybox currently has no migration framework because there are no earlier public schemas to migrate.
 
 ## Version and metadata
 
@@ -120,4 +120,4 @@ Replay and diff omit a complete request header if any of its recorded values is 
 
 Format readers must check `format`, `schema_version`, the required creation/version metadata, and all required tables, columns, indexes, and body constraints before reading exchange data. Graybox rejects incomplete schema-1 files and validates body metadata again when reading. The format was corrected in place before the public `v0.1.0` release; incompatible pre-release schema-1 prototypes are invalid.
 
-Schema 1 was introduced by V0 at `v0.1.0` and remains current for V1 at `v0.2.0`. V1 semantic diffing requires no schema change. New optional metadata keys may be added without changing the schema version; for example, diff falls back to its default replay response capture limit when an older schema-1 recording lacks `body_capture_limit`. Any future incompatible representation or table change requires a new schema version.
+Schema 1 was introduced by V0 at `v0.1.0` and remains the current Graybox recording format. Runtime replay and diff features do not change the persisted representation. New optional metadata keys may be added without changing the schema version; for example, diff falls back to its default replay response capture limit when an older schema-1 recording lacks `body_capture_limit`. Any future incompatible representation or table change requires a new schema version.

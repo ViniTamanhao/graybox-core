@@ -135,7 +135,7 @@ Graybox stores the effective HTTP request, observed response, headers, timing, b
 
 Body capture is bounded to 10 MiB per request or response by default. Traffic continues streaming after the capture limit; the recording keeps the retained prefix together with size, truncation, and completion metadata.
 
-Recording schema 1 was introduced in `v0.1.0` and remains the format used by `v0.2.0`.
+Recording schema 1 was introduced in `v0.1.0` and remains the current recording format.
 
 See [Recording format](docs/recording-format.md).
 

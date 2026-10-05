@@ -363,6 +363,14 @@ Examples:
 	}
 
 	if jsonOutput {
+		output := toDiffReportJSON(recordingPath, target.String(), bodyLimit, ignored, report)
+		for index := range output.Results {
+			for differenceIndex := range output.Results[index].Differences {
+				difference := &output.Results[index].Differences[differenceIndex]
+				difference.Before.Value = redactor.redactData(difference.Before.Value)
+				difference.After.Value = redactor.redactData(difference.After.Value)
+			}
+		}
 		if err := redactor.writeJSONOutput(
 			a.Stdout,
 			func(
@@ -370,13 +378,7 @@ Examples:
 			) error {
 				return writeJSON(
 					writer,
-					toDiffReportJSON(
-						recordingPath,
-						target.String(),
-						bodyLimit,
-						ignored,
-						report,
-					),
+					output,
 				)
 			},
 		); err != nil {
