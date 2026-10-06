@@ -1,203 +1,125 @@
 # Graybox
 
-A local-first HTTP flight recorder for reproducing and comparing API behavior.
+Graybox records real API behavior so you can reproduce it and detect behavioral
+regressions after changing your application.
 
-Graybox records real HTTP traffic into portable `.graybox` files. You can inspect what happened, replay the original requests, then compare the current behavior after making a change.
-
-No account, daemon, or cloud service required.
+A local CLI records HTTP traffic into portable `.graybox` files. No account,
+daemon, or cloud service required.
 
 ```text
-record → inspect → fix → diff → verify
+record → inspect → change → diff → verify
 ```
 
-## Quick start
+## Try it: an authenticated order API
 
-Run the included example API:
+The [example API](examples/server) returns a $50 order with a $5 discount.
+It requires an `Authorization` header and uses only Go's standard library.
+Run these commands from the repository root with Go and curl installed.
+
+Build Graybox, then start the API in terminal 1:
 
 ```bash
+go build -o graybox ./cmd/graybox
 go run ./examples/server
 ```
 
-Start Graybox in another terminal:
+In terminal 2, start the recorder (use a new output filename if it already exists):
 
 ```bash
-graybox record \
-  --target http://localhost:8080 \
-  --output bug.graybox
+./graybox record --target http://127.0.0.1:8080 --output order.graybox
 ```
 
-Send traffic through the proxy:
+In terminal 3, send a real authenticated request through Graybox's proxy:
 
 ```bash
-curl http://127.0.0.1:9000/hello
-
-curl -X POST http://127.0.0.1:9000/echo \
-  -H 'Content-Type: application/json' \
-  -d '{"message":"hello"}'
+export API_AUTH='Bearer demo-token'
+curl --fail-with-body http://127.0.0.1:9000/orders/42 -H "Authorization: $API_AUTH"
 ```
 
-Stop the recorder with Ctrl+C.
-
-Inspect what happened:
+The response has `"total_cents":4500`. Stop the recorder with Ctrl+C in terminal 2,
+then inspect the recording in terminal 3:
 
 ```bash
-graybox ls bug.graybox
-graybox show bug.graybox 1
+./graybox ls order.graybox
+./graybox show order.graybox 1
 ```
 
-After changing the application, compare its current behavior with the recording:
+The stored `Authorization` value is `<REDACTED>`; the successful response remains
+available for comparison.
+
+Introduce a bug in [examples/server/main.go](examples/server/main.go): change
+`total := subtotal - discount` to `total := subtotal`. Stop the API with Ctrl+C
+in terminal 1, then restart it with `go run ./examples/server`.
+
+In terminal 3, compare the changed API with the recording:
 
 ```bash
-graybox diff bug.graybox
+./graybox diff order.graybox --secret-header Authorization=API_AUTH
 ```
 
-Example:
+Graybox reads the runtime credential from `API_AUTH` and reports:
 
 ```text
-Diffing 2 exchanges against http://localhost:8080
+Diffing 1 exchanges against http://127.0.0.1:8080
 Ignoring: response.headers.date, response.headers.content-length
 
-1 GET /hello
-  equivalent
-
-2 POST /echo
+1 GET /orders/42
   changed
-  response.body#/message
-    "hello" -> "hello world"
+  response.body#/total_cents
+    4500 -> 5000
 
-1 equivalent
+0 equivalent
 1 changed
 0 failed
 ```
 
-## Install
+The exit code is `1` because behavior changed. Restore the subtraction, restart
+the API, and run the same diff command: it reports `1 equivalent` and exits `0`.
+The recording stays unchanged. See the [demo instructions](examples/server/README.md)
+for the full walkthrough and authenticated replay.
 
-Graybox requires Go 1.26.6 or newer when building from source.
+## Installation
+
+Building from source requires Go 1.26.6 or newer:
 
 ```bash
 go install github.com/ViniTamanhao/graybox-core/cmd/graybox@latest
 ```
 
-Or build the repository directly:
+To run the demo, clone the repository and use the local build shown above:
 
 ```bash
 git clone https://github.com/ViniTamanhao/graybox-core.git
 cd graybox-core
-
-go build -o graybox ./cmd/graybox
 ```
 
-Prebuilt binaries for Linux, macOS, and Windows are available from GitHub Releases.
+Prebuilt binaries are available from [GitHub Releases](https://github.com/ViniTamanhao/graybox-core/releases).
 
-## Commands
+## Core commands
 
-| Command           | Purpose                                                          |
-| ----------------- | ---------------------------------------------------------------- |
-| `graybox record`  | Record HTTP traffic through a local reverse proxy                |
-| `graybox ls`      | List recorded exchanges                                          |
-| `graybox show`    | Inspect one recorded exchange                                    |
-| `graybox replay`  | Replay recorded requests                                         |
-| `graybox diff`    | Replay requests and compare current responses with the recording |
-| `graybox version` | Print the Graybox version                                        |
+| Command | Purpose |
+| --- | --- |
+| `graybox record` | Proxy and record HTTP traffic |
+| `graybox ls` | List recorded exchanges |
+| `graybox show` | Inspect one exchange |
+| `graybox replay` | Send recorded requests again |
+| `graybox diff` | Replay and compare responses with the recording |
 
-Most commands also support `--json` for scripts and tooling.
-
-## Behavioral diffing
-
-`graybox diff` compares response status, headers, and bodies.
-
-Complete JSON responses are compared semantically, so formatting, object-key order, and equivalent numbers such as `1` and `1.0` do not create false differences.
-
-Non-JSON bodies are compared byte-for-byte.
-
-Volatile values can be ignored explicitly:
-
-```bash
-graybox diff bug.graybox \
-  --ignore 'response.body#/metadata/request_id'
-```
-
-`Date` and `Content-Length` response headers are ignored by default.
-
-A result can be:
-
-* `equivalent` — comparison completed and no differences were found
-* `changed` — comparison completed and behavior changed
-* `failed` — the comparison could not be completed
-
-See [Behavioral diffing](docs/diffing.md) for the full comparison model, ignore syntax, exit codes, and JSON format.
-
-## Recordings
-
-A `.graybox` file is an ordinary SQLite database.
-
-Graybox stores the effective HTTP request, observed response, headers, timing, bounded body captures, and metadata needed for replay.
-
-Body capture is bounded to 10 MiB per request or response by default. Traffic continues streaming after the capture limit; the recording keeps the retained prefix together with size, truncation, and completion metadata.
-
-Recording schema 1 was introduced in `v0.1.0` and remains the current recording format.
-
-See [Recording format](docs/recording-format.md).
-
-## Replay safety
-
-Replay and diff can send recorded requests to a server.
-
-When `--target` is omitted, Graybox automatically reuses the recorded target only for localhost and loopback addresses. Remote recorded targets require an explicit `--target` or `--unsafe-original-target`.
-
-Redirects are not followed, redacted recorded credentials are not restored automatically, and truncated or incomplete request bodies are refused.
-
-## Runtime credentials
-
-For authenticated replay or diff, explicitly map a request header to an environment variable with `--secret-header HEADER=ENV_VAR`:
-
-```bash
-export API_AUTH='Bearer abc123'
-
-graybox replay bug.graybox \
-  --secret-header Authorization=API_AUTH
-
-graybox diff bug.graybox \
-  --secret-header Authorization=API_AUTH
-```
-
-The flag may be repeated for multiple headers. Values come from the named environment variables and override corresponding recorded headers only in outgoing requests at runtime; the recording is not modified. Graybox does not guess environment variable names.
-
-Invalid mappings or missing/empty environment variables fail before any HTTP request is sent, with usage exit code `4`. See [Security](docs/SECURITY.md) for validation rules and runtime secret output scrubbing.
+Run `graybox help <command>` for options.
 
 ## Security
 
-Recordings may contain sensitive application data.
-
-Graybox automatically redacts values from:
-
-* `Authorization`
-* `Proxy-Authorization`
-* `Cookie`
-* `Set-Cookie`
-
-This is deliberately limited. Bodies, URLs, and other application-specific values may still contain secrets.
-
-Read [Security](docs/SECURITY.md) before sharing recordings or diff output.
+Graybox redacts `Authorization`, `Proxy-Authorization`, `Cookie`, and `Set-Cookie`
+headers during capture. Bodies, URLs, and other headers may still contain secrets;
+review recordings before sharing them. Replay and diff send real requests.
+Use `--secret-header HEADER=ENV_VAR` to supply credentials at runtime; those values
+are never written back into the recording. Read [Security](docs/SECURITY.md).
 
 ## Documentation
 
-* [Behavioral diffing](docs/diffing.md)
-* [Architecture](docs/architecture.md)
-* [Recording format](docs/recording-format.md)
-* [Security](docs/SECURITY.md)
-* [Contributing](docs/CONTRIBUTING.md)
+- [Behavioral diffing](docs/diffing.md): comparisons, ignores, exit codes, JSON output
+- [Recording format](docs/recording-format.md)
+- [Architecture](docs/architecture.md)
+- [Contributing](docs/CONTRIBUTING.md)
 
-## Scope
-
-Graybox is focused on local HTTP debugging and behavioral verification.
-
-It is not an APM, packet analyzer, service mesh, transparent proxy, or hosted API client. Features such as gRPC-specific decoding, mocking, regression suites, CI integrations, and agent integrations may be added as the project develops.
-
-## Contributing
-
-Focused issues and pull requests are welcome. See [Contributing](docs/CONTRIBUTING.md).
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+MIT licensed. See [LICENSE](LICENSE).
