@@ -46,14 +46,12 @@ func TestRequestReplacementErrorsDoNotExposeValues(t *testing.T) {
 		body, kind, query, encoding string
 		replacements                Replacements
 	}{
-		{`{"existing":"old"}`, "application/json", "", "", Replacements{JSON: map[string]string{"/missing": secret}}},
+		{`{"credentials":"<REDACTED>"}`, "application/json", "", "", Replacements{JSON: map[string]string{"/credentials/key": secret}}},
 		{`{"key":"old"`, "application/json", "", "", Replacements{JSON: map[string]string{"/key": secret}}},
 		{`{"key":"old"}`, "application/json", "", "gzip", Replacements{JSON: map[string]string{"/key": secret}}},
 		{"key=old%zz", "application/x-www-form-urlencoded", "", "", Replacements{Form: map[string]string{"key": secret}}},
-		{"key=old", "application/x-www-form-urlencoded", "", "", Replacements{Form: map[string]string{"missing": secret}}},
 		{"\xffkey=old", "application/x-www-form-urlencoded", "", "", Replacements{Form: map[string]string{"key": secret}}},
 		{"opaque", "application/octet-stream", "", "", Replacements{JSON: map[string]string{"/key": secret}}},
-		{"", "text/plain", "other=old", "", Replacements{Query: map[string]string{"missing": secret}}},
 		{"", "text/plain", "key=old%zz", "", Replacements{Query: map[string]string{"key": secret}}},
 	} {
 		req := &http.Request{URL: &url.URL{RawQuery: tc.query}, Header: http.Header{"Content-Type": {tc.kind}, "Content-Encoding": {tc.encoding}}}

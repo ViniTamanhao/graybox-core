@@ -255,9 +255,12 @@ func TestConfigMissingVariablePreventsExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("GRAYBOX_V022_MISSING", "")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { t.Error("missing credential sent a request") }))
+	defer server.Close()
+	path := hardeningRecording(t, server.URL, []recording.Request{{Method: "POST", URL: "/oauth", Headers: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"secret":"<REDACTED>"}`), Complete: true}}, []recording.Response{{StatusCode: 200, Body: []byte(`{}`), Complete: true}})
 	for _, command := range []string{"replay", "diff"} {
 		var stdout, stderr bytes.Buffer
-		code := (App{Stdout: &stdout, Stderr: &stderr}).Run(context.Background(), []string{command, "nonexistent.graybox", "--json"})
+		code := (App{Stdout: &stdout, Stderr: &stderr}).Run(context.Background(), []string{command, path, "--json"})
 		if code != ExitUsage || !strings.Contains(stderr.String(), "GRAYBOX_V022_MISSING") || stdout.Len() != 0 {
 			t.Fatalf("%d %s", code, &stderr)
 		}
@@ -318,6 +321,10 @@ func TestConfiguredRecordCommandDoesNotResolveRuntimeSecrets(t *testing.T) {
 	exchange, err := store.Get(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)
+	}
+	policy, err := store.Metadata(context.Background(), "redaction_policy")
+	if err != nil || !strings.Contains(policy, "/client_secret") || strings.Contains(policy, "GRAYBOX_RECORD_UNUSED") || strings.Contains(policy, "record-original-secret") {
+		t.Fatal("capture policy missing or contains execution configuration")
 	}
 	for _, body := range [][]byte{exchange.Request.Body, exchange.Response.Body} {
 		if bytes.Contains(body, []byte("record-original-secret")) || !bytes.Contains(body, []byte(sanitize.RedactedValue)) {

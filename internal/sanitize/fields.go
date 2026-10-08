@@ -16,10 +16,10 @@ import (
 // Rules supplement the mandatory credential-header protections.
 // JSON paths are non-root RFC 6901 JSON Pointers, as in diff ignore rules.
 type Rules struct {
-	Headers []string
-	JSON    []string
-	Query   []string
-	Form    []string
+	Headers []string `json:"headers,omitempty"`
+	JSON    []string `json:"json,omitempty"`
+	Query   []string `json:"query,omitempty"`
+	Form    []string `json:"form,omitempty"`
 }
 
 func Pointer(path string) ([]string, error) {
@@ -44,8 +44,8 @@ func Pointer(path string) ([]string, error) {
 // ReplaceJSON changes existing fields only. Values are JSON strings, preserving
 // unrelated JSON scalar types and exact numeric representations.
 func ReplaceJSON(body []byte, values map[string]string, required bool) ([]byte, error) {
-	if !utf8.Valid(body) || !json.Valid(body) {
-		return nil, errors.New("body is not valid UTF-8 JSON")
+	if !validJSON(body) {
+		return nil, errors.New("body is not unambiguous UTF-8 JSON (check syntax and duplicate keys)")
 	}
 	result := append([]byte(nil), body...)
 	// Sort so overlapping paths have deterministic behavior.
@@ -70,6 +70,9 @@ func ReplaceJSON(body []byte, values map[string]string, required bool) ([]byte, 
 
 func replaceJSON(raw json.RawMessage, parts []string, value json.RawMessage) (json.RawMessage, bool, error) {
 	if len(parts) == 0 {
+		if value == nil {
+			return raw, true, nil
+		}
 		return value, true, nil
 	}
 	trimmed := bytes.TrimSpace(raw)
@@ -86,6 +89,9 @@ func replaceJSON(raw json.RawMessage, parts []string, value json.RawMessage) (js
 		if err != nil || !found {
 			return raw, found, err
 		}
+		if value == nil {
+			return raw, true, nil
+		}
 		object[parts[0]] = updated
 		encoded, err := marshalJSON(object)
 		return encoded, true, err
@@ -97,6 +103,8 @@ func replaceJSON(raw json.RawMessage, parts []string, value json.RawMessage) (js
 		}
 		token := parts[0]
 		index, err := strconv.Atoi(token)
+		// A pointer intended for an object field does not apply to an array;
+		// shape mismatches and unsupported indices are absent targets.
 		if err != nil || index < 0 || strconv.Itoa(index) != token || index >= len(array) {
 			return raw, false, nil
 		}
@@ -104,9 +112,18 @@ func replaceJSON(raw json.RawMessage, parts []string, value json.RawMessage) (js
 		if err != nil || !found {
 			return raw, found, err
 		}
+		if value == nil {
+			return raw, true, nil
+		}
 		array[index] = updated
 		encoded, err := marshalJSON(array)
 		return encoded, true, err
+	}
+	if value == nil {
+		var scalar string
+		if json.Unmarshal(raw, &scalar) == nil && IsRedacted(scalar) {
+			return raw, false, errors.New("cannot determine replacement fields inside a redacted JSON ancestor")
+		}
 	}
 	return raw, false, nil
 }
@@ -250,4 +267,116 @@ func sortedKeys(values map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// ExistingJSON selects existing fields without re-encoding unrelated bodies.
+// Duplicate object keys are ambiguous across HTTP servers and fail closed.
+func ExistingJSON(body []byte, values map[string]string) (map[string]string, error) {
+	if !validJSON(body) {
+		return nil, errors.New("body is not unambiguous UTF-8 JSON (check syntax and duplicate keys)")
+	}
+	matched := make(map[string]string)
+	for _, path := range sortedKeys(values) {
+		parts, err := Pointer(path)
+		if err != nil {
+			return nil, err
+		}
+		_, found, err := replaceJSON(body, parts, nil)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			matched[path] = values[path]
+		}
+	}
+	return matched, nil
+}
+
+// ExistingValues selects exact decoded query/form keys. Invalid encoding cannot
+// establish applicability and must not be treated as an unrelated request.
+func ExistingValues(raw string, values map[string]string) (map[string]string, error) {
+	parsed, err := url.ParseQuery(raw)
+	if err != nil {
+		return nil, errors.New("invalid query or form encoding")
+	}
+	matched := make(map[string]string)
+	for key, value := range values {
+		if _, found := parsed[key]; found {
+			matched[key] = value
+		}
+	}
+	return matched, nil
+}
+
+func validJSON(body []byte) bool {
+	if !utf8.Valid(body) || !json.Valid(body) {
+		return false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	return uniqueJSONValue(decoder)
+}
+
+func uniqueJSONValue(decoder *json.Decoder) bool {
+	token, err := decoder.Token()
+	if err != nil {
+		return false
+	}
+	switch token {
+	case json.Delim('{'):
+		seen := make(map[string]bool)
+		for decoder.More() {
+			key, err := decoder.Token()
+			if err != nil {
+				return false
+			}
+			name, ok := key.(string)
+			if !ok || seen[name] {
+				return false
+			}
+			seen[name] = true
+			if !uniqueJSONValue(decoder) {
+				return false
+			}
+		}
+		_, err = decoder.Token()
+		return err == nil
+	case json.Delim('['):
+		for decoder.More() {
+			if !uniqueJSONValue(decoder) {
+				return false
+			}
+		}
+		_, err = decoder.Token()
+		return err == nil
+	}
+	return true
+}
+
+// Merge combines capture-time and current protection; neither can disable the
+// other. Sorted sets keep policy reproducible and avoid redundant rules.
+func (r Rules) Merge(other Rules) Rules {
+	merge := func(left, right []string) []string {
+		seen := make(map[string]bool, len(left)+len(right))
+		for _, value := range left {
+			seen[value] = true
+		}
+		for _, value := range right {
+			seen[value] = true
+		}
+		combined := make([]string, 0, len(seen))
+		for value := range seen {
+			combined = append(combined, value)
+		}
+		sort.Strings(combined)
+		return combined
+	}
+	return Rules{Headers: merge(r.Headers, other.Headers), JSON: merge(r.JSON, other.JSON), Form: merge(r.Form, other.Form), Query: merge(r.Query, other.Query)}
+}
+
+// QueryWithheld recognizes the whole-query omission marker emitted by URL.
+// Such a query cannot be reconstructed safely from field-level mappings.
+func QueryWithheld(raw string) bool {
+	values, err := url.ParseQuery(raw)
+	return err == nil && len(values) == 1 && len(values["redacted"]) == 1 && IsRedacted(values.Get("redacted"))
 }

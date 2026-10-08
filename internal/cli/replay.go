@@ -7,6 +7,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/ViniTamanhao/graybox-core/internal/config"
 	"github.com/ViniTamanhao/graybox-core/internal/replay"
 	"github.com/ViniTamanhao/graybox-core/internal/storage"
 )
@@ -165,7 +166,7 @@ Examples:
 	if err != nil {
 		return ExitUsage, err
 	}
-	requestHeaderOverrides, replacements, redactor, err := resolveRequestConfig(cfg, secretHeaderValues)
+	requestHeaderOverrides, replacements, redactor, err := resolveRequestConfig(config.Config{Replay: config.Replay{Headers: cfg.Replay.Headers}}, secretHeaderValues)
 	if err != nil {
 		return ExitUsage, redactor.redactError(err)
 	}
@@ -190,6 +191,10 @@ Examples:
 	}
 
 	defer store.Close()
+	redaction, err = recordingRedaction(ctx, store, redaction)
+	if err != nil {
+		return classifyError(err), redactor.redactError(err)
+	}
 
 	target, err := resolveExecutionTarget(
 		ctx,
@@ -210,6 +215,15 @@ Examples:
 
 	if idValue > 0 {
 		selectedID = &idValue
+	}
+
+	replacements, redactor, err = resolveApplicableReplacements(ctx, store, selectedID, cfg, redactor)
+	if err != nil {
+		var usage usageError
+		if errors.As(err, &usage) {
+			return ExitUsage, redactor.redactError(err)
+		}
+		return classifyError(err), redactor.redactError(err)
 	}
 
 	results, err := (replay.Runner{

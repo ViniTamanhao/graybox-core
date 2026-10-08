@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/ViniTamanhao/graybox-core/internal/config"
@@ -312,6 +313,7 @@ func environmentVariableByte(
 
 type secretRedactor struct {
 	replacer *strings.Replacer
+	values   []string
 }
 
 func newSecretRedactor(
@@ -343,8 +345,16 @@ func newSecretRedactor(
 	}
 
 	for _, secret := range secrets {
+		// Header comparison normalizes names; protect echoed credential keys
+		// in their canonical and lower-case spellings as well.
+		if validHTTPHeaderName(secret) {
+			appendValue(http.CanonicalHeaderKey(secret))
+			appendValue(strings.ToLower(secret))
+		}
 		appendValue(url.QueryEscape(secret))
+		appendValue(lowerPercentEscapes(url.QueryEscape(secret)))
 		appendValue(url.PathEscape(secret))
+		appendValue(lowerPercentEscapes(url.PathEscape(secret)))
 		// Diff locations encode application keys as JSON Pointer tokens.
 		appendValue(strings.ReplaceAll(strings.ReplaceAll(secret, "~", "~0"), "/", "~1"))
 
@@ -406,6 +416,7 @@ func newSecretRedactor(
 	}
 
 	return secretRedactor{
+		values: append([]string(nil), secrets...),
 		replacer: strings.NewReplacer(
 			pairs...,
 		),
@@ -460,9 +471,9 @@ func (r secretRedactor) redact(
 	)
 }
 
-// redactData copies JSON application data, including keys, without touching
-// Graybox's output structs or changing scalar types. Redacted keys can collide;
-// sort source keys so the output remains deterministic in that case.
+// redactData copies application data, including keys, without touching
+// Graybox's output structs. Matching credential scalars become markers.
+// Redacted keys can collide; sort source keys to keep output deterministic.
 func (r secretRedactor) redactData(value any) any {
 	if r.replacer == nil {
 		return value
@@ -470,6 +481,25 @@ func (r secretRedactor) redactData(value any) any {
 	switch typed := value.(type) {
 	case string:
 		return r.redact(typed)
+	case json.Number:
+		if scrubbed := r.redact(string(typed)); scrubbed != string(typed) {
+			return sanitize.RedactedValue
+		}
+		return typed
+	case bool:
+		if scrubbed := r.redact(strconv.FormatBool(typed)); scrubbed != strconv.FormatBool(typed) {
+			return sanitize.RedactedValue
+		}
+		return typed
+	case []string:
+		if typed == nil {
+			return typed
+		}
+		copied := make([]string, len(typed))
+		for i, value := range typed {
+			copied[i] = r.redact(value)
+		}
+		return copied
 	case map[string]any:
 		if typed == nil {
 			return typed
@@ -665,9 +695,9 @@ func (r secretRedactor) writeOutput(
 
 	_, err := io.WriteString(
 		writer,
-		r.redact(
-			output.String(),
-		),
+		// Human JSON-valued displays escape '<' and '>' after data scrubbing.
+		// Preserve the established readable placeholder in those displays.
+		strings.ReplaceAll(r.redact(output.String()), `\u003cREDACTED\u003e`, sanitize.RedactedValue),
 	)
 
 	return r.redactError(
@@ -720,4 +750,21 @@ func (e redactedError) Error() string {
 
 func (e redactedError) Unwrap() error {
 	return e.err
+}
+
+// Percent escapes are case-insensitive; servers can echo either spelling.
+func lowerPercentEscapes(value string) string {
+	data := []byte(value)
+	for i := 0; i+2 < len(data); i++ {
+		if data[i] != '%' {
+			continue
+		}
+		for j := i + 1; j <= i+2; j++ {
+			if data[j] >= 'A' && data[j] <= 'F' {
+				data[j] += 'a' - 'A'
+			}
+		}
+		i += 2
+	}
+	return string(data)
 }

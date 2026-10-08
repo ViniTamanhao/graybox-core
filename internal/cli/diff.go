@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ViniTamanhao/graybox-core/internal/config"
 	"github.com/ViniTamanhao/graybox-core/internal/diff"
 	"github.com/ViniTamanhao/graybox-core/internal/replay"
 	"github.com/ViniTamanhao/graybox-core/internal/storage"
@@ -261,7 +262,7 @@ Examples:
 	if err != nil {
 		return ExitUsage, err
 	}
-	requestHeaderOverrides, replacements, redactor, err := resolveRequestConfig(cfg, secretHeaderValues)
+	requestHeaderOverrides, replacements, redactor, err := resolveRequestConfig(config.Config{Replay: config.Replay{Headers: cfg.Replay.Headers}}, secretHeaderValues)
 	if err != nil {
 		return ExitUsage, redactor.redactError(err)
 	}
@@ -296,6 +297,10 @@ Examples:
 	}
 
 	defer store.Close()
+	redaction, err = recordingRedaction(ctx, store, redaction)
+	if err != nil {
+		return classifyError(err), redactor.redactError(err)
+	}
 
 	target, err := resolveExecutionTarget(
 		ctx,
@@ -329,6 +334,15 @@ Examples:
 
 	if idValue > 0 {
 		selectedID = &idValue
+	}
+
+	replacements, redactor, err = resolveApplicableReplacements(ctx, store, selectedID, cfg, redactor)
+	if err != nil {
+		var usage usageError
+		if errors.As(err, &usage) {
+			return ExitUsage, redactor.redactError(err)
+		}
+		return classifyError(err), redactor.redactError(err)
 	}
 
 	report, err := (diff.Runner{
@@ -370,15 +384,17 @@ Examples:
 			)
 	}
 
+	// Scrub application values before human truncation and JSON serialization.
+	// Comparison outcomes were already computed from the sanitized responses.
+	for index := range report.Results {
+		for differenceIndex := range report.Results[index].Comparison.Differences {
+			difference := &report.Results[index].Comparison.Differences[differenceIndex]
+			difference.Before.Data = redactor.redactData(difference.Before.Data)
+			difference.After.Data = redactor.redactData(difference.After.Data)
+		}
+	}
 	if jsonOutput {
 		output := toDiffReportJSON(recordingPath, target.String(), bodyLimit, ignored, report)
-		for index := range output.Results {
-			for differenceIndex := range output.Results[index].Differences {
-				difference := &output.Results[index].Differences[differenceIndex]
-				difference.Before.Value = redactor.redactData(difference.Before.Value)
-				difference.After.Value = redactor.redactData(difference.After.Value)
-			}
-		}
 		if err := redactor.writeJSONOutput(
 			a.Stdout,
 			func(

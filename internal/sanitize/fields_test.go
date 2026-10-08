@@ -110,3 +110,20 @@ func TestSanitizedCaptureMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestDuplicateJSONKeysFailClosed(t *testing.T) {
+	rules := Rules{JSON: []string{"/credentials/api_key"}}
+	for _, body := range []string{
+		`{"credentials":{"api_key":"original-sensitive"},"credentials":{}}`,
+		`{"credentials":{"api_key":"original-sensitive","api_key":"second-sensitive"}}`,
+		`{"unrelated":{"a":1,"a":2},"credentials":{"api_key":"original-sensitive"}}`,
+	} {
+		result, _, complete := rules.CaptureBody([]byte(body), http.Header{"Content-Type": {"application/json"}}, int64(len(body)), false, true)
+		if complete || string(result) != RedactedValue {
+			t.Fatal("ambiguous JSON leaked or remained replayable")
+		}
+		if _, err := ExistingJSON([]byte(body), map[string]string{"/credentials/api_key": "new-sensitive"}); err == nil {
+			t.Fatal("ambiguous JSON accepted for replacement")
+		}
+	}
+}

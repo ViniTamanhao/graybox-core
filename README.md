@@ -125,7 +125,11 @@ Record with that file in your current directory, then export `CLIENT_SECRET` and
 `REFRESH_TOKEN`. Both `graybox replay session.graybox` and
 `graybox diff session.graybox` reconstruct outgoing requests without changing the
 sanitized recording. `--config FILE` selects another file; `--secret-header`
-overrides configured headers. JSON paths use the existing JSON Pointer convention.
+overrides configured headers. Missing body/query fields are skipped, so one
+configuration works for mixed OAuth and ordinary API sessions. Only applicable
+field rules need credentials. JSON paths use the existing JSON Pointer convention.
+New recordings retain non-sensitive redaction field lists so diff can apply the
+capture and current policies consistently without modifying the recording.
 See [Configuration](docs/configuration.md) for complete OAuth, form, query, and
 header examples, validation, precedence, and supported formats.
 

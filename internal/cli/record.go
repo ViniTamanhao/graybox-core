@@ -109,6 +109,16 @@ Example:
 		return ExitInternal, err
 	}
 
+	if redaction.Configured() {
+		policy, err := json.Marshal(redaction)
+		if err != nil {
+			return ExitInternal, fmt.Errorf("encode redaction policy")
+		}
+		if err := store.SetMetadata(ctx, "redaction_policy", string(policy)); err != nil {
+			return ExitInternal, err
+		}
+	}
+
 	if jsonOutput {
 		err = writeJSON(a.Stdout, map[string]any{"listen": displayListen(listen), "target": target.String(), "recording": output, "body_capture_limit": bodyLimit})
 	} else {
