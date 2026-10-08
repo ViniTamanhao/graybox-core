@@ -50,6 +50,26 @@ Credentials are injected only into outgoing replay requests and override the cor
 
 Malformed mappings or missing/empty environment variables fail before replay starts or any HTTP request is sent, with usage exit code `4`. Runtime secret values are scrubbed from Graybox-generated human output, JSON output, and errors. See [Security](SECURITY.md) for the full validation rules, output-scrubbing limits, and the distinction from capture-time redaction.
 
+Optional [graybox.yaml configuration](configuration.md) also supports credentials
+in JSON bodies, forms, and query parameters. Both replay and diff resolve the
+same runtime references and apply the same outgoing request replacements.
+`--secret-header` takes precedence over configured header mappings. Live response
+headers and bodies and an in-memory baseline copy receive the same effective
+redaction before comparison. That policy combines the current configuration
+with optional capture-time field lists stored in new recordings. Older recordings
+also infer sensitive locations from baseline markers; supply capture rules when
+legacy fields were absent and cannot be inferred. No credential values or runtime
+mappings are stored in policy metadata. Protected values are excluded from
+behavioral equivalence; field additions/removals and unrelated regressions remain
+visible. Withheld bodies produce clear comparison failures unless the body is
+ignored.
+
+JSON/form/query replacements apply only to existing fields in supported requests.
+Unrelated GETs and POSTs remain unchanged, and unused field mappings need no
+environment variables. Malformed, compressed, or unsupported nonempty bodies
+that cannot establish applicability fail safely. Missing required credentials
+for matching selected requests fail before any traffic with exit code `4`.
+
 ## What is compared
 
 Comparison proceeds deterministically in this order:
@@ -165,7 +185,7 @@ Target selection follows replay policy:
 - Without `--target`, the saved target is reused automatically only for `localhost`, `*.localhost`, and loopback IP addresses.
 - A saved remote target requires an explicit `--target` or `--unsafe-original-target`.
 - Redirects are returned as the observed response and are not followed.
-- Redacted recorded credentials are not restored automatically; current credentials require explicit `--secret-header` mappings. Recorded hop-by-hop headers are not replayed.
+- Redacted recorded credentials are not restored automatically; current credentials require configuration or explicit `--secret-header` mappings. Recorded hop-by-hop headers are not replayed.
 - Truncated or incomplete recorded request bodies are not replayed.
 
 Both `diff` and `replay` can send recorded payloads to a server. Review the recording and destination before running either command against a non-local target.

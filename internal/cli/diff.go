@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ViniTamanhao/graybox-core/internal/config"
 	"github.com/ViniTamanhao/graybox-core/internal/diff"
 	"github.com/ViniTamanhao/graybox-core/internal/replay"
 	"github.com/ViniTamanhao/graybox-core/internal/storage"
@@ -105,6 +106,7 @@ func (a App) runDiff(
 	args []string,
 ) (int, error) {
 	var targetValue string
+	var configPath string
 	var idValue int64
 	var ignoreValues stringListFlag
 	var secretHeaderValues secretHeaderFlag
@@ -128,6 +130,7 @@ Runtime credentials can be supplied explicitly from environment variables with
 requests and are never written back to the recording.
 
 Options:
+  --config FILE      configuration path (default ./graybox.yaml when present)
   --id ID            compare only one exchange
   --target URL       replace the original target
   --ignore LOCATION  ignore a response location; may be repeated
@@ -160,6 +163,8 @@ Examples:
 		"diff",
 		usage,
 	)
+
+	fs.StringVar(&configPath, "config", "", "")
 
 	fs.Int64Var(
 		&idValue,
@@ -253,11 +258,13 @@ Examples:
 		}
 	}
 
-	requestHeaderOverrides, redactor, err := resolveSecretHeaders(
-		secretHeaderValues,
-	)
+	cfg, redaction, err := loadConfig(configPath)
 	if err != nil {
 		return ExitUsage, err
+	}
+	requestHeaderOverrides, replacements, redactor, err := resolveRequestConfig(config.Config{Replay: config.Replay{Headers: cfg.Replay.Headers}}, secretHeaderValues)
+	if err != nil {
+		return ExitUsage, redactor.redactError(err)
 	}
 
 	rules, ignored, err := buildDiffRules(
@@ -290,6 +297,10 @@ Examples:
 	}
 
 	defer store.Close()
+	redaction, err = recordingRedaction(ctx, store, redaction)
+	if err != nil {
+		return classifyError(err), redactor.redactError(err)
+	}
 
 	target, err := resolveExecutionTarget(
 		ctx,
@@ -325,11 +336,22 @@ Examples:
 		selectedID = &idValue
 	}
 
+	replacements, redactor, err = resolveApplicableReplacements(ctx, store, selectedID, cfg, redactor)
+	if err != nil {
+		var usage usageError
+		if errors.As(err, &usage) {
+			return ExitUsage, redactor.redactError(err)
+		}
+		return classifyError(err), redactor.redactError(err)
+	}
+
 	report, err := (diff.Runner{
 		Replayer: replay.Runner{
 			Source:                 store,
 			ResponseBodyLimit:      bodyLimit,
 			RequestHeaderOverrides: requestHeaderOverrides,
+			Replacements:           replacements,
+			Redaction:              redaction,
 		},
 		Rules: rules,
 	}).Run(
@@ -362,15 +384,17 @@ Examples:
 			)
 	}
 
+	// Scrub application values before human truncation and JSON serialization.
+	// Comparison outcomes were already computed from the sanitized responses.
+	for index := range report.Results {
+		for differenceIndex := range report.Results[index].Comparison.Differences {
+			difference := &report.Results[index].Comparison.Differences[differenceIndex]
+			difference.Before.Data = redactor.redactData(difference.Before.Data)
+			difference.After.Data = redactor.redactData(difference.After.Data)
+		}
+	}
 	if jsonOutput {
 		output := toDiffReportJSON(recordingPath, target.String(), bodyLimit, ignored, report)
-		for index := range output.Results {
-			for differenceIndex := range output.Results[index].Differences {
-				difference := &output.Results[index].Differences[differenceIndex]
-				difference.Before.Value = redactor.redactData(difference.Before.Value)
-				difference.After.Value = redactor.redactData(difference.After.Value)
-			}
-		}
 		if err := redactor.writeJSONOutput(
 			a.Stdout,
 			func(

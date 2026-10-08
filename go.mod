@@ -2,7 +2,10 @@ module github.com/ViniTamanhao/graybox-core
 
 go 1.26.6
 
-require modernc.org/sqlite v1.60.1
+require (
+	go.yaml.in/yaml/v3 v3.0.4
+	modernc.org/sqlite v1.60.1
+)
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
