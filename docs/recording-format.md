@@ -88,7 +88,7 @@ CREATE INDEX exchanges_status_idx ON exchanges(response_status);
 
 - `exchanges.id` is the stable numeric exchange ID used for lookup. SQLite assigns IDs in capture completion order; list output is ordered by `started_at` and then ID.
 - `protocol` is currently `http`. HTTP version-specific framing, including HTTP/2 framing, is not part of the recorded domain model.
-- `request_url` is the origin-form request URI: escaped path plus the raw query representation. Graybox deliberately preserves that raw representation through capture and replay, including unusual semicolons or percent encoding, because debugging fidelity takes priority over query normalization. The replay target supplies scheme and authority.
+- `request_url` is the origin-form request URI: escaped path plus the raw query representation. Without query rules or runtime query replacements, Graybox preserves that raw representation through capture and replay, including unusual semicolons or percent encoding, for debugging fidelity. Configured query redaction/replacement uses standard URL encoding and normalizes ordering. The replay target supplies scheme and authority.
 - `started_at` and `completed_at` are UTC RFC 3339 timestamps with nanosecond precision.
 - `duration_ns` is total proxy-observed duration in nanoseconds.
 - Request headers are captured after reverse-proxy rewriting and hop-by-hop removal. Consequently, spoofed inbound forwarding headers are absent and the persisted `X-Forwarded-*` values are those Graybox generated for the upstream request. `Host` is an HTTP request field rather than an entry in Go's header map; the configured target supplies the recorded upstream authority and the selected replay target supplies replay authority.
@@ -112,7 +112,21 @@ Before persistence, Graybox replaces every value of these request or response he
 - `Cookie`
 - `Set-Cookie`
 
-Matching is case-insensitive. The number of repeated values remains visible. Graybox does not sanitize bodies, URLs, arbitrary headers, or application-specific secrets. A recording must therefore be treated as sensitive even after automatic redaction.
+Matching is case-insensitive. The number of repeated values remains visible.
+Optional [configuration](configuration.md) adds custom header, JSON Pointer,
+query, and form redaction before persistence. Sensitive values become
+`<REDACTED>`; JSON/form structure is preserved for supported complete bodies.
+Unsafe bodies with configured protection are withheld and marked incomplete.
+
+Schema 1's body-size constraints remain unchanged. When sanitization transforms
+body bytes, `captured_size` is the sanitized BLOB length and `observed_size` is
+that length plus any omitted original capture bytes. The truncation flag remains
+unchanged; size values for transformed bodies do not represent original wire
+length. Withheld bodies have `complete = false` so replay cannot send the marker.
+Untransformed bodies retain the original wire-size semantics described above.
+
+Unconfigured fields and unsupported formats can contain secrets. Every recording
+must be treated as sensitive even after redaction.
 
 Replay and diff omit a complete request header if any of its recorded values is `<REDACTED>`; neither command transmits that marker as a credential.
 

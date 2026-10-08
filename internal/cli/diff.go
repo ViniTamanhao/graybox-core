@@ -105,6 +105,7 @@ func (a App) runDiff(
 	args []string,
 ) (int, error) {
 	var targetValue string
+	var configPath string
 	var idValue int64
 	var ignoreValues stringListFlag
 	var secretHeaderValues secretHeaderFlag
@@ -128,6 +129,7 @@ Runtime credentials can be supplied explicitly from environment variables with
 requests and are never written back to the recording.
 
 Options:
+  --config FILE      configuration path (default ./graybox.yaml when present)
   --id ID            compare only one exchange
   --target URL       replace the original target
   --ignore LOCATION  ignore a response location; may be repeated
@@ -160,6 +162,8 @@ Examples:
 		"diff",
 		usage,
 	)
+
+	fs.StringVar(&configPath, "config", "", "")
 
 	fs.Int64Var(
 		&idValue,
@@ -253,11 +257,13 @@ Examples:
 		}
 	}
 
-	requestHeaderOverrides, redactor, err := resolveSecretHeaders(
-		secretHeaderValues,
-	)
+	cfg, redaction, err := loadConfig(configPath)
 	if err != nil {
 		return ExitUsage, err
+	}
+	requestHeaderOverrides, replacements, redactor, err := resolveRequestConfig(cfg, secretHeaderValues)
+	if err != nil {
+		return ExitUsage, redactor.redactError(err)
 	}
 
 	rules, ignored, err := buildDiffRules(
@@ -330,6 +336,8 @@ Examples:
 			Source:                 store,
 			ResponseBodyLimit:      bodyLimit,
 			RequestHeaderOverrides: requestHeaderOverrides,
+			Replacements:           replacements,
+			Redaction:              redaction,
 		},
 		Rules: rules,
 	}).Run(

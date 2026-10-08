@@ -107,16 +107,40 @@ Prebuilt binaries are available from [GitHub Releases](https://github.com/ViniTa
 
 Run `graybox help <command>` for options.
 
+## OAuth bodies and project configuration
+
+Optional `graybox.yaml` rules extend default header redaction to custom headers,
+JSON fields, forms, and query parameters. For example:
+
+```yaml
+redact:
+  json: [/client_secret, /refresh_token]
+replay:
+  json:
+    /client_secret: "${CLIENT_SECRET}"
+    /refresh_token: "${REFRESH_TOKEN}"
+```
+
+Record with that file in your current directory, then export `CLIENT_SECRET` and
+`REFRESH_TOKEN`. Both `graybox replay session.graybox` and
+`graybox diff session.graybox` reconstruct outgoing requests without changing the
+sanitized recording. `--config FILE` selects another file; `--secret-header`
+overrides configured headers. JSON paths use the existing JSON Pointer convention.
+See [Configuration](docs/configuration.md) for complete OAuth, form, query, and
+header examples, validation, precedence, and supported formats.
+
 ## Security
 
 Graybox redacts `Authorization`, `Proxy-Authorization`, `Cookie`, and `Set-Cookie`
-headers during capture. Bodies, URLs, and other headers may still contain secrets;
+headers during capture. Custom rules supplement these defaults. Unconfigured
+fields, unsupported bodies, and URL paths may still contain secrets;
 review recordings before sharing them. Replay and diff send real requests.
 Use `--secret-header HEADER=ENV_VAR` to supply credentials at runtime; those values
 are never written back into the recording. Read [Security](docs/SECURITY.md).
 
 ## Documentation
 
+- [Configuration](docs/configuration.md): redaction and runtime credentials
 - [Behavioral diffing](docs/diffing.md): comparisons, ignores, exit codes, JSON output
 - [Recording format](docs/recording-format.md)
 - [Architecture](docs/architecture.md)

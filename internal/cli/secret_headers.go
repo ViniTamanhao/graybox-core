@@ -7,10 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
+	"net/url"
 	"sort"
 	"strings"
 
+	"github.com/ViniTamanhao/graybox-core/internal/config"
 	"github.com/ViniTamanhao/graybox-core/internal/sanitize"
 )
 
@@ -52,76 +53,8 @@ type secretHeaderMapping struct {
 func resolveSecretHeaders(
 	values []string,
 ) (http.Header, secretRedactor, error) {
-	mappings, err := parseSecretHeaderMappings(
-		values,
-	)
-	if err != nil {
-		return nil, secretRedactor{}, err
-	}
-
-	headers := make(
-		http.Header,
-		len(mappings),
-	)
-
-	secrets := make(
-		[]string,
-		0,
-		len(mappings),
-	)
-
-	for _, mapping := range mappings {
-		value, exists := os.LookupEnv(
-			mapping.EnvVar,
-		)
-		if !exists {
-			return nil, secretRedactor{}, usageError{
-				fmt.Sprintf(
-					"environment variable %q for --secret-header %s is not set",
-					mapping.EnvVar,
-					mapping.Header,
-				),
-			}
-		}
-
-		if value == "" {
-			return nil, secretRedactor{}, usageError{
-				fmt.Sprintf(
-					"environment variable %q for --secret-header %s is empty",
-					mapping.EnvVar,
-					mapping.Header,
-				),
-			}
-		}
-
-		if !validHTTPHeaderValue(
-			value,
-		) {
-			return nil, secretRedactor{}, usageError{
-				fmt.Sprintf(
-					"environment variable %q contains an invalid HTTP header value for %s",
-					mapping.EnvVar,
-					mapping.Header,
-				),
-			}
-		}
-
-		headers.Set(
-			mapping.Header,
-			value,
-		)
-
-		secrets = append(
-			secrets,
-			value,
-		)
-	}
-
-	return headers,
-		newSecretRedactor(
-			secrets,
-		),
-		nil
+	headers, _, redactor, err := resolveRequestConfig(config.Config{}, values)
+	return headers, redactor, err
 }
 
 func parseSecretHeaderMappings(
@@ -410,6 +343,11 @@ func newSecretRedactor(
 	}
 
 	for _, secret := range secrets {
+		appendValue(url.QueryEscape(secret))
+		appendValue(url.PathEscape(secret))
+		// Diff locations encode application keys as JSON Pointer tokens.
+		appendValue(strings.ReplaceAll(strings.ReplaceAll(secret, "~", "~0"), "/", "~1"))
+
 		// Plain-text form. This handles normal human output and errors.
 		appendValue(
 			secret,

@@ -27,6 +27,7 @@ func (a App) runReplay(
 	args []string,
 ) (int, error) {
 	var targetValue string
+	var configPath string
 	var idValue int64
 	var secretHeaderValues secretHeaderFlag
 	var jsonOutput bool
@@ -48,6 +49,7 @@ Runtime credentials can be supplied explicitly from environment variables with
 and are never written back to the recording.
 
 Options:
+  --config FILE      configuration path (default ./graybox.yaml when present)
   --id ID            replay only one exchange
   --target URL       replace the original target
   --secret-header HEADER=ENV_VAR
@@ -70,6 +72,8 @@ Examples:
 		"replay",
 		usage,
 	)
+
+	fs.StringVar(&configPath, "config", "", "")
 
 	fs.Int64Var(
 		&idValue,
@@ -157,11 +161,13 @@ Examples:
 		}
 	}
 
-	requestHeaderOverrides, redactor, err := resolveSecretHeaders(
-		secretHeaderValues,
-	)
+	cfg, redaction, err := loadConfig(configPath)
 	if err != nil {
 		return ExitUsage, err
+	}
+	requestHeaderOverrides, replacements, redactor, err := resolveRequestConfig(cfg, secretHeaderValues)
+	if err != nil {
+		return ExitUsage, redactor.redactError(err)
 	}
 
 	recordingPath := positional[0]
@@ -209,6 +215,8 @@ Examples:
 	results, err := (replay.Runner{
 		Source:                 store,
 		RequestHeaderOverrides: requestHeaderOverrides,
+		Replacements:           replacements,
+		Redaction:              redaction,
 	}).Run(
 		ctx,
 		target,

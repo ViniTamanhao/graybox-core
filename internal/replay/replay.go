@@ -75,6 +75,8 @@ type Runner struct {
 	Client                 *http.Client
 	ResponseBodyLimit      int64
 	RequestHeaderOverrides http.Header
+	Replacements           Replacements
+	Redaction              sanitize.Rules
 }
 
 // Run replays all exchanges, or only id when it is non-nil.
@@ -162,6 +164,8 @@ func (r Runner) runEach(
 				target,
 				exchange,
 				r.RequestHeaderOverrides,
+				r.Replacements,
+				r.Redaction,
 				bodyLimit,
 				captureBody,
 			),
@@ -195,6 +199,8 @@ func (r Runner) runEach(
 				target,
 				exchange,
 				r.RequestHeaderOverrides,
+				r.Replacements,
+				r.Redaction,
 				bodyLimit,
 				captureBody,
 			),
@@ -277,6 +283,8 @@ func execute(
 	target *url.URL,
 	exchange recording.Exchange,
 	requestHeaderOverrides http.Header,
+	replacements Replacements,
+	redaction sanitize.Rules,
 	bodyLimit int64,
 	captureBody bool,
 ) Execution {
@@ -335,6 +343,11 @@ func execute(
 		requestHeaderOverrides,
 	)
 
+	if err := replacements.apply(request, exchange.Request.Body); err != nil {
+		result.Err = fmt.Errorf("replace replay request: %w", err)
+		return result
+	}
+
 	started := time.Now()
 
 	response, err := client.Do(request)
@@ -384,7 +397,7 @@ func execute(
 	// Recorded response headers are sanitized before persistence. Apply the
 	// same policy to replayed headers before they can enter a diff result,
 	// otherwise secrets such as Set-Cookie could be surfaced by comparison.
-	observed.Headers = sanitize.Headers(
+	observed.Headers = redaction.ApplyHeaders(
 		response.Header,
 	)
 
@@ -393,10 +406,8 @@ func execute(
 		bodyLimit,
 	)
 
-	observed.Body = body
-	observed.ObservedSize = observedSize
+	observed.Body, observed.ObservedSize, observed.Complete = redaction.CaptureBody(body, response.Header, observedSize, truncated, err == nil)
 	observed.Truncated = truncated
-	observed.Complete = err == nil
 
 	if err != nil {
 		result.Err = fmt.Errorf(
