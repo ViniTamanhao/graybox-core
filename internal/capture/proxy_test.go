@@ -8,9 +8,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/ViniTamanhao/graybox-core/internal/recording"
+	"github.com/ViniTamanhao/graybox-core/internal/sanitize"
 )
 
 func TestCaptureReadCloserCompletion(t *testing.T) {
@@ -135,5 +138,17 @@ func TestProxyDoesNotSwallowOrPersistProgrammingPanic(t *testing.T) {
 	}
 	if recorder.calls != 0 {
 		t.Fatalf("programming panic persisted %d exchanges", recorder.calls)
+	}
+}
+
+func TestConfiguredCaptureDiagnosticsOmitUpstreamValues(t *testing.T) {
+	target, _ := url.Parse("http://localhost")
+	var reported error
+	proxy := NewProxy(target, new(countingRecorder), ErrorHandlers{Transport: func(err error) { reported = err }})
+	proxy.SetRedaction(sanitize.Rules{Query: []string{"token"}})
+	captured := &captureWriter{ResponseWriter: httptest.NewRecorder(), limit: 1024}
+	proxy.proxy.ErrorHandler(captured, httptest.NewRequest("GET", "http://localhost?token=original-sensitive-token", nil), errors.New("failed URL token=original-sensitive-token"))
+	if reported == nil || strings.Contains(reported.Error(), "original-sensitive-token") || strings.Contains(captured.proxyError, "original-sensitive-token") {
+		t.Fatal("capture diagnostic leaked a configured secret")
 	}
 }

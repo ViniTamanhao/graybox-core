@@ -1202,6 +1202,8 @@ func TestCompactReplayDoesNotRetainResponseBody(
 		target,
 		exchange,
 		nil,
+		Replacements{},
+		sanitize.Rules{},
 		DefaultResponseBodyCaptureLimit,
 		false,
 	)

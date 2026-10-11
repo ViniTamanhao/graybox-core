@@ -27,7 +27,7 @@ type createRecordingFunc func(context.Context, string, string) (recordingStore, 
 type listenFunc func(string, string) (net.Listener, error)
 
 func (a App) runRecord(ctx context.Context, args []string) (int, error) {
-	var listen, targetValue, output string
+	var listen, targetValue, output, configPath string
 	var bodyLimit int64
 	var jsonOutput, help bool
 	usage := func() {
@@ -38,6 +38,7 @@ Traffic continues to stream when bounded body captures are truncated. If any
 observed exchange cannot be persisted, shutdown reports the loss and fails.
 
 Options:
+  --config FILE      configuration path (default ./graybox.yaml when present)
   --listen ADDRESS   listen address (default 127.0.0.1:9000)
   --target URL       upstream HTTP or HTTPS URL (required)
   --output FILE      output recording (default session.graybox)
@@ -50,6 +51,7 @@ Example:
 `)
 	}
 	fs := a.newFlagSet("record", usage)
+	fs.StringVar(&configPath, "config", "", "")
 	fs.StringVar(&listen, "listen", defaultListenAddress, "")
 	fs.StringVar(&targetValue, "target", "", "")
 	fs.StringVar(&output, "output", "session.graybox", "")
@@ -71,6 +73,11 @@ Example:
 	if bodyLimit <= 0 {
 		return ExitUsage, usageError{"--body-limit must be a positive number of bytes"}
 	}
+	_, redaction, err := loadConfig(configPath)
+	if err != nil {
+		return ExitUsage, err
+	}
+
 	target, err := parseTarget(targetValue)
 	if err != nil {
 		return ExitUsage, err
@@ -102,6 +109,16 @@ Example:
 		return ExitInternal, err
 	}
 
+	if redaction.Configured() {
+		policy, err := json.Marshal(redaction)
+		if err != nil {
+			return ExitInternal, fmt.Errorf("encode redaction policy")
+		}
+		if err := store.SetMetadata(ctx, "redaction_policy", string(policy)); err != nil {
+			return ExitInternal, err
+		}
+	}
+
 	if jsonOutput {
 		err = writeJSON(a.Stdout, map[string]any{"listen": displayListen(listen), "target": target.String(), "recording": output, "body_capture_limit": bodyLimit})
 	} else {
@@ -120,6 +137,7 @@ Example:
 	handler := capture.NewProxyWithBodyLimit(target, store, bodyLimit, capture.ErrorHandlers{
 		Transport: report, Persistence: report,
 	})
+	handler.SetRedaction(redaction)
 	server := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	serverErrors := make(chan error, 1)
 	go func() { serverErrors <- server.Serve(listener) }()

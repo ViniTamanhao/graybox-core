@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/ViniTamanhao/graybox-core/internal/recording"
+	"github.com/ViniTamanhao/graybox-core/internal/sanitize"
 )
 
 // ErrBodyUnavailable means Graybox does not possess a complete response body
@@ -43,11 +44,14 @@ type BodyUnavailableError struct {
 	ObservedSize int64
 	Truncated    bool
 	Complete     bool
+	Withheld     bool
 }
 
 // Error returns a human-readable description of the unavailable body.
 func (e *BodyUnavailableError) Error() string {
 	switch {
+	case e.Withheld:
+		return fmt.Sprintf("%s response body cannot be compared: body was withheld by redaction", e.Side)
 	case e.Truncated && !e.Complete:
 		return fmt.Sprintf(
 			"%s response body cannot be compared: "+
@@ -175,6 +179,7 @@ func ensureComparableBody(
 	}
 
 	return &BodyUnavailableError{
+		Withheld:     !response.Complete && bytes.Equal(response.Body, []byte(sanitize.RedactedValue)),
 		Side:         side,
 		CapturedSize: int64(len(response.Body)),
 		ObservedSize: response.ObservedSize,

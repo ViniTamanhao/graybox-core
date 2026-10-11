@@ -40,6 +40,7 @@ type Proxy struct {
 	recorder  Recorder
 	errors    ErrorHandlers
 	bodyLimit int64
+	redaction sanitize.Rules
 
 	persistenceFailures atomic.Uint64
 }
@@ -48,6 +49,9 @@ type Proxy struct {
 func NewProxy(target *url.URL, recorder Recorder, handlers ErrorHandlers) *Proxy {
 	return NewProxyWithBodyLimit(target, recorder, DefaultBodyCaptureLimit, handlers)
 }
+
+// SetRedaction configures additional protections before serving requests.
+func (p *Proxy) SetRedaction(rules sanitize.Rules) { p.redaction = rules }
 
 // NewProxyWithBodyLimit builds a recording reverse proxy with a bounded body
 // capture. Reaching the capture limit does not truncate proxied traffic.
@@ -66,7 +70,11 @@ func NewProxyWithBodyLimit(target *url.URL, recorder Recorder, bodyLimit int64, 
 	// proxy should forward the representation the client asked to receive.
 	transport.DisableCompression = true
 	reverse.Transport = captureTransport{base: transport}
+	result := &Proxy{proxy: reverse, recorder: recorder, errors: handlers, bodyLimit: bodyLimit}
 	reverse.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
+		if result.redaction.Configured() {
+			err = errors.New("upstream transport failed")
+		}
 		if captured, ok := w.(*captureWriter); ok {
 			captured.proxyError = err.Error()
 		}
@@ -75,7 +83,7 @@ func NewProxyWithBodyLimit(target *url.URL, recorder Recorder, bodyLimit int64, 
 			handlers.Transport(fmt.Errorf("forward request: %w", err))
 		}
 	}
-	return &Proxy{proxy: reverse, recorder: recorder, errors: handlers, bodyLimit: bodyLimit}
+	return result
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -110,6 +118,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				streamErr = fmt.Errorf("write response: %w", captured.writeErr)
 			} else {
 				streamErr = errors.New("response stream aborted")
+			}
+			if p.redaction.Configured() {
+				streamErr = errors.New("response stream failed")
 			}
 			captured.proxyError = streamErr.Error()
 			if p.errors.Transport != nil {
@@ -324,8 +335,8 @@ func (p *Proxy) persistExchange(
 		ProxyError: captured.proxyError,
 		Request: recording.Request{
 			Method:       r.Method,
-			URL:          r.URL.RequestURI(),
-			Headers:      sanitize.Headers(outbound.snapshot()),
+			URL:          p.redaction.URL(r.URL.RequestURI()),
+			Headers:      p.redaction.ApplyHeaders(outbound.snapshot()),
 			Body:         requestBody.bytes(),
 			ObservedSize: requestBody.size,
 			Truncated:    requestBody.truncated(),
@@ -333,7 +344,7 @@ func (p *Proxy) persistExchange(
 		},
 		Response: recording.Response{
 			StatusCode:   captured.status,
-			Headers:      sanitize.Headers(captured.Header()),
+			Headers:      p.redaction.ApplyHeaders(captured.Header()),
 			Body:         append([]byte(nil), captured.body.Bytes()...),
 			ObservedSize: captured.size,
 			Truncated:    captured.truncated(),
@@ -341,10 +352,16 @@ func (p *Proxy) persistExchange(
 		},
 	}
 
+	exchange.Request.Body, exchange.Request.ObservedSize, exchange.Request.Complete = p.redaction.CaptureBody(requestBody.bytes(), outbound.snapshot(), requestBody.size, exchange.Request.Truncated, exchange.Request.Complete)
+	exchange.Response.Body, exchange.Response.ObservedSize, exchange.Response.Complete = p.redaction.CaptureBody(captured.body.Bytes(), captured.Header(), captured.size, exchange.Response.Truncated, exchange.Response.Complete)
+
 	if _, err := p.recorder.Add(
 		context.WithoutCancel(r.Context()),
 		exchange,
 	); err != nil {
+		if p.redaction.Configured() {
+			err = errors.New("persistence failed")
+		}
 		p.persistenceFailures.Add(1)
 		if p.errors.Persistence != nil {
 			p.errors.Persistence(

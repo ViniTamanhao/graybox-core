@@ -21,6 +21,7 @@ No external server is required; integration tests use `httptest.Server` and temp
 - `internal/capture`: HTTP reverse proxy
 - `internal/replay`: request reconstruction and execution
 - `internal/sanitize`: persisted-data redaction
+- `internal/config`: strict optional YAML parsing
 - `internal/cli`: parsing and human/JSON rendering
 
 Keep changes within Graybox's recorder/debugger scope. Prefer explicit standard-library code and small tests over speculative abstractions. If a change alters persisted data or JSON output, update the relevant documentation and add compatibility-focused tests.

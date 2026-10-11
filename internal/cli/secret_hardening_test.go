@@ -56,7 +56,11 @@ func TestDiffRedactsApplicationObjectKeys(t *testing.T) {
 						t.Fatalf("bad keys: %#v", object)
 					}
 				case "/scalars":
-					if !reflect.DeepEqual(difference.After.Value, []any{float64(1), true, nil, "<REDACTED>"}) {
+					expectedNumber := any(float64(1))
+					if secret == "1" {
+						expectedNumber = "<REDACTED>"
+					}
+					if !reflect.DeepEqual(difference.After.Value, []any{expectedNumber, true, nil, "<REDACTED>"}) {
 						t.Fatalf("bad scalars: %#v", difference.After.Value)
 					}
 				default:
@@ -117,6 +121,14 @@ func FuzzStructuredSecretRedaction(f *testing.F) {
 			case []any:
 				for i, item := range typed {
 					check(item, after.([]any)[i])
+				}
+			case json.Number:
+				expected := any(typed)
+				if redactor.redact(string(typed)) != string(typed) {
+					expected = "<REDACTED>"
+				}
+				if !reflect.DeepEqual(expected, after) {
+					t.Fatal("numeric credential not scrubbed")
 				}
 			default:
 				if !reflect.DeepEqual(before, after) {

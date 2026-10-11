@@ -75,6 +75,8 @@ type Runner struct {
 	Client                 *http.Client
 	ResponseBodyLimit      int64
 	RequestHeaderOverrides http.Header
+	Replacements           Replacements
+	Redaction              sanitize.Rules
 }
 
 // Run replays all exchanges, or only id when it is non-nil.
@@ -145,60 +147,45 @@ func (r Runner) runEach(
 	client := replayClient(r.Client)
 	bodyLimit := r.responseBodyLimit()
 
+	runExchange := func(exchange recording.Exchange) error {
+		policy := r.Redaction
+		// Replacement query locations are sensitive in reports, even when the
+		// original recording predates redaction. Outgoing URLs remain separate.
+		policy.Query = append([]string(nil), policy.Query...)
+		for field := range r.Replacements.Query {
+			policy.Query = append(policy.Query, field)
+		}
+		if captureBody {
+			policy = policy.WithRecordedMarkers(exchange.Response.Headers, exchange.Response.Body).WithRecordedQuery(exchange.Request.URL)
+		}
+		execution := execute(ctx, client, target, exchange, r.RequestHeaderOverrides, r.Replacements, policy, bodyLimit, captureBody)
+		if captureBody {
+			// Normalize only the in-memory baseline copy. The outgoing request was
+			// reconstructed from the original recording, independently of redaction.
+			exchange.Request.URL = policy.URL(exchange.Request.URL)
+			exchange.Response.Body, exchange.Response.ObservedSize, exchange.Response.Complete = policy.CaptureBody(exchange.Response.Body, exchange.Response.Headers, exchange.Response.ObservedSize, exchange.Response.Truncated, exchange.Response.Complete)
+			exchange.Response.Headers = policy.ApplyHeaders(exchange.Response.Headers)
+		}
+		return visit(exchange, execution)
+	}
 	if id != nil {
-		exchange, err := r.Source.Get(
-			ctx,
-			*id,
-		)
+		exchange, err := r.Source.Get(ctx, *id)
 		if err != nil {
 			return err
 		}
-
-		return visit(
-			exchange,
-			execute(
-				ctx,
-				client,
-				target,
-				exchange,
-				r.RequestHeaderOverrides,
-				bodyLimit,
-				captureBody,
-			),
-		)
+		return runExchange(exchange)
 	}
-
-	summaries, err := r.Source.List(
-		ctx,
-		recording.Filter{},
-	)
+	summaries, err := r.Source.List(ctx, recording.Filter{})
 	if err != nil {
 		return err
 	}
-
-	// Load and execute one full exchange at a time so replay never retains all
-	// recorded bodies in memory. Summaries are intentionally compact.
+	// Preserve the streaming memory bound during execution.
 	for _, summary := range summaries {
-		exchange, err := r.Source.Get(
-			ctx,
-			summary.ID,
-		)
+		exchange, err := r.Source.Get(ctx, summary.ID)
 		if err != nil {
 			return err
 		}
-
-		if err := visit(
-			exchange,
-			execute(
-				ctx,
-				client,
-				target,
-				exchange,
-				r.RequestHeaderOverrides,
-				bodyLimit,
-				captureBody,
-			),
-		); err != nil {
+		if err := runExchange(exchange); err != nil {
 			return err
 		}
 	}
@@ -277,13 +264,15 @@ func execute(
 	target *url.URL,
 	exchange recording.Exchange,
 	requestHeaderOverrides http.Header,
+	replacements Replacements,
+	redaction sanitize.Rules,
 	bodyLimit int64,
 	captureBody bool,
 ) Execution {
 	result := Execution{
 		ExchangeID: exchange.ID,
 		Method:     exchange.Request.Method,
-		Path:       exchange.Request.URL,
+		Path:       redaction.URL(exchange.Request.URL),
 	}
 
 	targetURL, err := BuildURL(
@@ -291,11 +280,15 @@ func execute(
 		exchange.Request.URL,
 	)
 	if err != nil {
-		result.Err = err
+		result.Err = executionError("build replay URL", err, redaction)
 		return result
 	}
 
-	result.TargetURL = targetURL.String()
+	result.TargetURL = redaction.URL(targetURL.String())
+	if len(redaction.Query) > 0 && sanitize.QueryWithheld(targetURL.RawQuery) {
+		result.Err = fmt.Errorf("cannot replay exchange: request query was withheld by redaction")
+		return result
+	}
 
 	if exchange.Request.Truncated {
 		result.Err = fmt.Errorf(
@@ -305,6 +298,10 @@ func execute(
 	}
 
 	if !exchange.Request.Complete {
+		if bytes.Equal(exchange.Request.Body, []byte(sanitize.RedactedValue)) {
+			result.Err = fmt.Errorf("cannot replay exchange: request body was withheld by redaction")
+			return result
+		}
 		result.Err = fmt.Errorf(
 			"cannot replay exchange: request body was incomplete",
 		)
@@ -314,14 +311,11 @@ func execute(
 	request, err := http.NewRequestWithContext(
 		ctx,
 		exchange.Request.Method,
-		result.TargetURL,
+		targetURL.String(),
 		bytes.NewReader(exchange.Request.Body),
 	)
 	if err != nil {
-		result.Err = fmt.Errorf(
-			"build replay request: %w",
-			err,
-		)
+		result.Err = executionError("build replay request", err, redaction)
 		return result
 	}
 
@@ -335,6 +329,11 @@ func execute(
 		requestHeaderOverrides,
 	)
 
+	if err := replacements.apply(request, exchange.Request.Body); err != nil {
+		result.Err = fmt.Errorf("replace replay request: %w", err)
+		return result
+	}
+
 	started := time.Now()
 
 	response, err := client.Do(request)
@@ -345,10 +344,7 @@ func execute(
 	result.Duration = time.Since(started)
 
 	if err != nil {
-		result.Err = fmt.Errorf(
-			"send replay request: %w",
-			err,
-		)
+		result.Err = executionError("send replay request", err, redaction)
 		return result
 	}
 
@@ -369,10 +365,7 @@ func execute(
 		)
 
 		if err != nil {
-			result.Err = fmt.Errorf(
-				"read replay response: %w",
-				err,
-			)
+			result.Err = executionError("read replay response", err, redaction)
 			return result
 		}
 
@@ -384,7 +377,7 @@ func execute(
 	// Recorded response headers are sanitized before persistence. Apply the
 	// same policy to replayed headers before they can enter a diff result,
 	// otherwise secrets such as Set-Cookie could be surfaced by comparison.
-	observed.Headers = sanitize.Headers(
+	observed.Headers = redaction.ApplyHeaders(
 		response.Header,
 	)
 
@@ -393,16 +386,11 @@ func execute(
 		bodyLimit,
 	)
 
-	observed.Body = body
-	observed.ObservedSize = observedSize
+	observed.Body, observed.ObservedSize, observed.Complete = redaction.CaptureBody(body, response.Header, observedSize, truncated, err == nil)
 	observed.Truncated = truncated
-	observed.Complete = err == nil
 
 	if err != nil {
-		result.Err = fmt.Errorf(
-			"read replay response: %w",
-			err,
-		)
+		result.Err = executionError("read replay response", err, redaction)
 		return result
 	}
 
@@ -625,4 +613,13 @@ func joinPath(
 		right,
 		"/",
 	)
+}
+
+// Configured protection must also cover transport diagnostics, which can contain
+// raw request URLs or upstream values that no longer appear in sanitized data.
+func executionError(operation string, err error, policy sanitize.Rules) error {
+	if policy.Configured() {
+		return fmt.Errorf("%s failed (details withheld by redaction policy)", operation)
+	}
+	return fmt.Errorf("%s: %w", operation, err)
 }
