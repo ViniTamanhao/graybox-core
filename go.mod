@@ -3,7 +3,7 @@ module github.com/ViniTamanhao/graybox-core
 go 1.26.9
 
 require (
-	go.yaml.in/yaml/v3 v3.0.4
+	go.yaml.in/yaml/v3 v3.0.5
 	modernc.org/sqlite v1.60.1
 )
 
