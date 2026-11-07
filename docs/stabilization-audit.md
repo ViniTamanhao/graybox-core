@@ -89,3 +89,23 @@ covered without requiring metadata. Existing OAuth replacement tests still pass.
 This is a narrow safety correction: literal marker fields now fail too; CLI flags,
 schema and numerical exit-code meanings remain unchanged. Unsupported formats
 are not an arbitrary-secret detection surface.
+
+### Release and installation evidence
+
+Extracted the existing build loop into `scripts/package-release.sh` (same six
+targets, filenames and linker version interface). Python standard-library ZIP
+creation removes the need for an extra Windows ZIP utility; there are no new Go
+runtime dependencies. The verifier checks the exact archive/checksum manifest,
+root executable and mode, then runs only the native binary's startup/help and
+text/JSON version commands. CI runs native packaging on each OS; publication
+waits for checks of the same archives on Linux, macOS and Windows.
+
+All six local targets cross-built and passed archive/checksum verification;
+Linux AMD64 executable checks passed. Deliberately tampered archives and extra
+distribution files were rejected. An earlier all-target invocation was interrupted
+by editing its script while it ran; the clean final-script rerun passed.
+Downloaded all six published v0.2.3 archives and SHA256SUMS independently: all
+checksums/layouts passed, and the Linux AMD64 executable reported v0.2.3 with
+working help/JSON version. No foreign executable was run locally. Pinned
+`go install .../cmd/graybox@v0.2.3` into a temporary GOBIN succeeded and reported
+`graybox v0.2.3`. Exact-minimum `GOTOOLCHAIN=go1.26.10 go test ./...` passed.
