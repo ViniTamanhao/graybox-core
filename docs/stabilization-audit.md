@@ -21,11 +21,15 @@ GitHub evidence inspected directly:
 
 - [main CI](https://github.com/ViniTamanhao/graybox-core/actions/runs/41512893846)
   completed successfully at `fdfbf3f`.
-- Latest published release is [v0.2.3](https://github.com/ViniTamanhao/graybox-core/releases/tag/v0.2.3),
+- Latest published release (rechecked on 2026-11-07) is [v0.2.3](https://github.com/ViniTamanhao/graybox-core/releases/tag/v0.2.3),
   published 2026-10-11, with six OS/architecture archives and SHA256SUMS.
 - [v0.2.3 release workflow](https://github.com/ViniTamanhao/graybox-core/actions/runs/38155370235)
   completed successfully. This is older than main's Go security update; this PR
   does not publish a replacement release.
+
+The changes in this audit are pending in [PR #23](https://github.com/ViniTamanhao/graybox-core/pull/23)
+on `chore/phase-1-stabilization`; they are not included in v0.2.3. The proposed
+next patch release is **v0.2.4**, not yet published.
 
 ## Confirmed inconsistencies and coverage gaps
 
@@ -61,6 +65,12 @@ by 201 reached the client as 200 and was stored as 103. The capture writer now
 forwards informational responses without committing its final status. The test
 checks client and SQLite status, full body and absence of interim-only headers;
 `go test ./internal/capture -count=1` passes after the fix.
+
+The additional `TestProxyEarlyHintsPreservesImplicitOKResponse` covers 103
+followed by a body write with no explicit final status. It passed against the
+existing PR implementation without production changes, checking client and
+recorded status 200, matching bodies, completion and no interim-header leakage.
+The focused test and broader capture suite passed.
 
 ### Authenticated workflow and failure coverage
 

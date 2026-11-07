@@ -82,7 +82,10 @@ for the full walkthrough and authenticated replay.
 
 ## Installation
 
-Building from source requires Go 1.26.10 or newer:
+The demo above uses the current development checkout. Published releases may
+lag behind it; see [release status](docs/installation.md#release-status).
+
+Building the current source requires Go 1.26.10 or newer:
 
 ```bash
 go install github.com/ViniTamanhao/graybox-core/cmd/graybox@latest

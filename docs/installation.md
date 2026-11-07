@@ -1,5 +1,19 @@
 # Installation and release verification
 
+## Release status
+
+As verified on 2026-11-07, the latest published release is
+[v0.2.3](https://github.com/ViniTamanhao/graybox-core/releases/tag/v0.2.3).
+The development branch `chore/phase-1-stabilization` contains the unpublished
+changes pending in [PR #23](https://github.com/ViniTamanhao/graybox-core/pull/23),
+including the HTTP informational-response and redacted-credential replay fixes.
+These fixes are not included in v0.2.3. The proposed next patch release is
+**v0.2.4**, after review and merge; it has not been published.
+
+`@latest` and prebuilt release downloads select published versions, not this
+development branch. To try the pending changes, check out
+`chore/phase-1-stabilization` before following the source-build instructions.
+
 ## Source
 
 The current main branch requires **Go 1.26.10 or newer**, as declared in go.mod.
