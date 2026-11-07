@@ -155,6 +155,7 @@ are never written back into the recording. Read [Security](docs/SECURITY.md).
 - [Installation and release checks](docs/installation.md)
 - [Configuration](docs/configuration.md): redaction and runtime credentials
 - [Behavioral diffing](docs/diffing.md): comparisons, ignores, exit codes, JSON output
+- [Agent verification contract](docs/agent-verification-contract.md) and [workflow](docs/agent-verification-workflow.md)
 - [Recording format](docs/recording-format.md)
 - [Architecture](docs/architecture.md)
 - [Contributing](docs/CONTRIBUTING.md)

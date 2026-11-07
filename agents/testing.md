@@ -35,6 +35,12 @@ and Windows. Replaying a request can mutate state; use disposable targets.
 Read existing tests to understand their assertions before declaring a guarantee
 covered. Add integration coverage when correctness spans package boundaries.
 
+For agent-facing CLI contracts, assert semantic JSON fields/types and both output
+channels through `App.Run`, independently of production DTOs where useful. Follow
+the [verification contract](../docs/agent-verification-contract.md): empty success
+is not coverage, HTTP error responses remain comparable, and failed comparison
+evidence takes precedence over differences. Preserve baseline bytes.
+
 ## Verification
 
 Run relevant tests during development; before completion run where supported:

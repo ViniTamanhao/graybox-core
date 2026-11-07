@@ -24,6 +24,10 @@ graybox diff bug.graybox --id 42
 
 Diffing does not change the recording. It observes the current response and reports whether each selected exchange is `equivalent`, `changed`, or `failed`.
 
+For automation, see the [agent verification contract](agent-verification-contract.md)
+for field types, command-versus-exchange failures and empty-run interpretation,
+and the [agent workflow](agent-verification-workflow.md) for safe baseline use.
+
 ## Authenticated diffing
 
 A recording may contain a redacted `Authorization` header, but replaying an authenticated API requires a current credential. Supply it explicitly from an environment variable:
