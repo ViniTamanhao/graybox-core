@@ -73,3 +73,29 @@ Configuration can restore JSON body, form, and query credentials using `${ENV_VA
 ## Reporting a vulnerability
 
 Please report suspected vulnerabilities privately through GitHub's security-advisory feature for this repository. Include the affected version, impact, and a minimal reproduction when possible. Do not include real credentials or private production recordings.
+
+## Stateful requests and side effects
+
+Replay and diff both execute real requests, including POST, PUT, PATCH and DELETE.
+A successful replay means an HTTP exchange completed, not that authentication or
+application logic succeeded: inspect the reported status. A complete 401, 403 or
+500 is a response for diff to compare (`changed` if different from baseline),
+not a failed comparison. Transport errors and incomplete evidence are failures.
+
+Use a disposable local database and disable real notification/payment integrations
+before replaying write traffic. Reset application state between runs yourself.
+Repeating a POST can create another resource; an application-provided idempotency
+key may change this behavior. Graybox does not create idempotency keys, undo
+writes, refresh credentials, correlate generated IDs, or substitute an earlier
+response into a later request. Requests run in recording list order (start time,
+then ID), which cannot reproduce the concurrency of the original session.
+Loopback target validation protects destination selection, not side effects.
+
+
+Recognizable exact `<REDACTED>` values remaining in supported JSON/form request
+fields or decoded query parameters after runtime replacement now fail that
+exchange before transmission. This also applies to legacy recordings without
+policy metadata and to naturally occurring literal markers. Configure every
+required replacement; partial replacement is not sufficient. The failure uses
+the existing replay/diff execution-failure codes, not a new exit code. This is
+not a scan of arbitrary binary, compressed or malformed data for secrets.

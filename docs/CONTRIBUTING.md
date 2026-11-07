@@ -2,6 +2,10 @@
 
 Graybox is intentionally a small API recorder and debugger. Focused issues and pull requests are welcome, especially for HTTP correctness, cross-platform behavior, tests, documentation, and the recording format.
 
+Read [AGENTS.md](../AGENTS.md) and the [development guides](../agents/README.md)
+before changes. Use Go **1.26.10 or newer** (go.mod is authoritative), TDD by
+default, progressive Conventional Commits and incremental documentation.
+
 ## Development setup
 
 ```bash
@@ -26,4 +30,4 @@ No external server is required; integration tests use `httptest.Server` and temp
 
 Keep changes within Graybox's recorder/debugger scope. Prefer explicit standard-library code and small tests over speculative abstractions. If a change alters persisted data or JSON output, update the relevant documentation and add compatibility-focused tests.
 
-Before opening a pull request, run `gofmt` on Go files and make sure all three validation commands above pass. Describe the behavior being changed and how it was tested.
+Before opening a pull request, run the [full verification commands](../agents/testing.md#verification), including formatting, module consistency, race tests and the configured vulnerability check. Review the complete diff; report actual results and environmental limits. Release changes also require the [packaging smoke checks](installation.md#maintainer-packaging-checks-no-publishing).

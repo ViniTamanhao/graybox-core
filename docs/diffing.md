@@ -270,3 +270,19 @@ Changed exact bodies use the size and SHA-256 snapshot shown above. Durations ar
 | 5 | internal or filesystem error |
 
 If a run contains both changed and failed exchanges, code `3` takes precedence. Replay retains its own command-specific meaning for exit code `1`.
+
+## HTTP failures and stateful workflows
+
+A complete HTTP 401, 403 or 500 is compared normally. A changed status is
+`changed`, not `failed`; an identical error response can be `equivalent`.
+Equivalence does not prove that an application request succeeded. Ordinary
+`replay` similarly reports completed HTTP error responses with exit 0; inspect
+its per-exchange status. One failed replay execution exits 3; a multi-exchange
+replay with any failures exits 1. Diff uses the table above regardless of count.
+Command-level errors stay on stderr even with `--json` (no JSON report is emitted).
+An empty valid recording produces an empty successful report and sends no traffic.
+
+Both commands can mutate the target. Reset disposable application state before
+repeated comparisons. Generated resource IDs and dependencies between exchanges
+are not correlated or rewritten; concurrent workflows become sequential.
+See [stateful request safety](SECURITY.md#stateful-requests-and-side-effects).

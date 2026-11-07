@@ -47,9 +47,11 @@ then inspect the recording in terminal 3:
 The stored `Authorization` value is `<REDACTED>`; the successful response remains
 available for comparison.
 
-Introduce a bug in [examples/server/main.go](examples/server/main.go): change
-`total := subtotal - discount` to `total := subtotal`. Stop the API with Ctrl+C
-in terminal 1, then restart it with `go run ./examples/server`.
+Stop the API with Ctrl+C in terminal 1, then start the intentional regression:
+
+```bash
+go run ./examples/server --regressed
+```
 
 In terminal 3, compare the changed API with the recording:
 
@@ -73,14 +75,17 @@ Ignoring: response.headers.date, response.headers.content-length
 0 failed
 ```
 
-The exit code is `1` because behavior changed. Restore the subtraction, restart
-the API, and run the same diff command: it reports `1 equivalent` and exits `0`.
+The exit code is `1` because behavior changed. Restart
+the API without `--regressed`, and run the same diff command: it reports `1 equivalent` and exits `0`.
 The recording stays unchanged. See the [demo instructions](examples/server/README.md)
 for the full walkthrough and authenticated replay.
 
 ## Installation
 
-Building from source requires Go 1.26.6 or newer:
+The demo above uses the current development checkout. Published releases may
+lag behind it; see [release status](docs/installation.md#release-status).
+
+Building the current source requires Go 1.26.10 or newer:
 
 ```bash
 go install github.com/ViniTamanhao/graybox-core/cmd/graybox@latest
@@ -94,6 +99,9 @@ cd graybox-core
 ```
 
 Prebuilt binaries are available from [GitHub Releases](https://github.com/ViniTamanhao/graybox-core/releases).
+See [installation](docs/installation.md) for pinned installs, PATH setup, checksum
+verification and platform-specific extraction. Checkout builds report `dev`;
+module installs and release binaries report their version.
 
 ## Core commands
 
@@ -144,6 +152,7 @@ are never written back into the recording. Read [Security](docs/SECURITY.md).
 
 ## Documentation
 
+- [Installation and release checks](docs/installation.md)
 - [Configuration](docs/configuration.md): redaction and runtime credentials
 - [Behavioral diffing](docs/diffing.md): comparisons, ignores, exit codes, JSON output
 - [Recording format](docs/recording-format.md)

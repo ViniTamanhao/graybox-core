@@ -1,0 +1,156 @@
+# Phase 1 stabilization audit
+
+Audit started 2026-11-06. Initial checkout: `2240f1b`; fetched main and branch
+base: `fdfbf3f`. The intervening changes only update Go to 1.26.10 and YAML to
+3.0.5. No existing root agent instructions were present.
+
+## Baseline evidence
+
+Read README, all existing docs, workflows, example, implementation and focused
+tests across capture, CLI, configuration, replay, sanitization, diff and storage.
+The core workflow already exists; this pass extends it rather than replacing it.
+
+On the original checkout, Go 1.27.3 linux/amd64 passed `go test ./...`,
+`go test -race ./...`, `go vet ./...`, `go build ./...`, and
+`go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...` (no vulnerabilities).
+`go fmt ./...` and `go mod tidy` produced no changes. Initial sandbox attempts
+failed on read-only Git metadata and Go cache; authorized execution resolved
+these. SSH fetch stalled; HTTPS fetched main successfully.
+
+GitHub evidence inspected directly:
+
+- [main CI](https://github.com/ViniTamanhao/graybox-core/actions/runs/41512893846)
+  completed successfully at `fdfbf3f`.
+- Latest published release (rechecked on 2026-11-07) is [v0.2.3](https://github.com/ViniTamanhao/graybox-core/releases/tag/v0.2.3),
+  published 2026-10-11, with six OS/architecture archives and SHA256SUMS.
+- [v0.2.3 release workflow](https://github.com/ViniTamanhao/graybox-core/actions/runs/38155370235)
+  completed successfully. This is older than main's Go security update; this PR
+  does not publish a replacement release.
+
+The changes in this audit are pending in [PR #23](https://github.com/ViniTamanhao/graybox-core/pull/23)
+on `chore/phase-1-stabilization`; they are not included in v0.2.3. The proposed
+next patch release is **v0.2.4**, not yet published.
+
+## Confirmed inconsistencies and coverage gaps
+
+- README and example require Go 1.26.6, but fetched `go.mod` requires 1.26.10.
+- Demo requires editing source to introduce and revert a regression.
+- Release workflow builds six targets but executes only Linux AMD64 before
+  packaging; no extraction/checksum/help smoke test gates publication.
+- Existing OAuth integration tests check JSON/form/query/header redaction,
+  runtime injection, output scrubbing and byte-identical recording preservation.
+  They do not exercise the whole baseline/change/restore cycle through `record`.
+- Existing tests cover malformed config/pointers, missing/empty credentials with
+  zero requests, legacy policy inference, transport/partial body failures,
+  truncation, binary/malformed JSON, missing IDs and schema validation. Additional
+  explicit HTTP error-status, cancellation and repeated side-effect coverage is
+  useful; HTTP application errors must not become transport failures.
+
+## Implementation and verification
+
+Updated as each stage is completed below. No schema or exit-code change is planned.
+
+## Deferred scope
+
+Stateful correlation, token refresh, resource cleanup, automatic rollback and
+side-effect prevention remain outside Phase 1. Sequential replay is not a
+transaction or a sandbox. Unconfigured secrets and arbitrary server encodings
+are not covered by runtime-value scrubbing. No claim of universal secret safety
+or production readiness follows from passing tests.
+
+### HTTP final-status correction
+
+`TestProxyEarlyHintsPreservesFinalResponse` failed before the fix: a 103 followed
+by 201 reached the client as 200 and was stored as 103. The capture writer now
+forwards informational responses without committing its final status. The test
+checks client and SQLite status, full body and absence of interim-only headers;
+`go test ./internal/capture -count=1` passes after the fix.
+
+The additional `TestProxyEarlyHintsPreservesImplicitOKResponse` covers 103
+followed by a body write with no explicit final status. It passed against the
+existing PR implementation without production changes, checking client and
+recorded status 200, matching bodies, completion and no interim-header leakage.
+The focused test and broader capture suite passed.
+
+### Authenticated workflow and failure coverage
+
+Added a complete CLI record/shutdown/inspect/replay/diff/change/restore test using
+an authenticated loopback server. It independently queries SQLite columns for
+request identity, status, body and mandatory header markers; searches raw file
+bytes for synthetic canaries; checks structured semantic values and exit codes;
+and compares artifact bytes after repeated human and JSON invocations.
+Existing OAuth tests cover custom headers, nested/array JSON, forms, queries,
+response redaction and percent-encoded runtime values; existing hardening tests
+cover JSON escapes, preflight, old policy-less recordings and output sanitization.
+Added explicit 401/403/500 completed-comparison tests, empty/invalid recording
+and missing-ID checks, cancellation/deadline/refused-connection checks and a POST
+repetition test demonstrating real side effects. No universal secret-detection
+claim is made. The example now accepts `--regressed` and requires authentication
+in both modes; returning to baseline requires only restarting without the flag.
+
+### Redacted request markers
+
+A focused test confirmed that both commands previously transmitted exact
+`<REDACTED>` JSON/form/query values without replacements and could report false
+workflow equivalence. This contradicted the documented reconstruction rule.
+Replay now checks the outgoing supported representation after replacement and
+refuses remaining marker fields before HTTP execution. Legacy recordings are
+covered without requiring metadata. Existing OAuth replacement tests still pass.
+This is a narrow safety correction: literal marker fields now fail too; CLI flags,
+schema and numerical exit-code meanings remain unchanged. Unsupported formats
+are not an arbitrary-secret detection surface.
+
+### Release and installation evidence
+
+Extracted the existing build loop into `scripts/package-release.sh` (same six
+targets, filenames and linker version interface). Python standard-library ZIP
+creation removes the need for an extra Windows ZIP utility; there are no new Go
+runtime dependencies. The verifier checks the exact archive/checksum manifest,
+root executable and mode, then runs only the native binary's startup/help and
+text/JSON version commands. CI runs native packaging on each OS; publication
+waits for checks of the same archives on Linux, macOS and Windows.
+
+All six local targets cross-built and passed archive/checksum verification;
+Linux AMD64 executable checks passed. Deliberately tampered archives and extra
+distribution files were rejected. An earlier all-target invocation was interrupted
+by editing its script while it ran; the clean final-script rerun passed.
+Downloaded all six published v0.2.3 archives and SHA256SUMS independently: all
+checksums/layouts passed, and the Linux AMD64 executable reported v0.2.3 with
+working help/JSON version. No foreign executable was run locally. Pinned
+`go install .../cmd/graybox@v0.2.3` into a temporary GOBIN succeeded and reported
+`graybox v0.2.3`. Exact-minimum `GOTOOLCHAIN=go1.26.10 go test ./...` passed.
+
+## Final local verification
+
+On Go 1.27.3 linux/amd64, after both fixes:
+
+| Command/check | Result |
+| --- | --- |
+| `go fmt ./...` | Pass; no remaining formatting changes |
+| `go mod tidy` and module diff check | Pass; no dependency changes |
+| `go test ./...` | Pass |
+| `go test -race ./...` | Pass |
+| `go vet ./...` | Pass |
+| `go build ./...` | Pass |
+| `go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...` | Pass; no vulnerabilities found |
+| `GOTOOLCHAIN=go1.26.10 go test ./...` and `go build ./...` | Pass with exact minimum toolchain |
+| `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/ci.yml .github/workflows/release.yml` | Pass |
+| Native packaged final binary smoke | Pass |
+| `git diff --check` and local Markdown link destinations | Pass |
+
+Additional focused tests cover partial credential replacement and transport
+failure rendering; both targeted tests and replay race checks pass. No Go module,
+recording schema, CLI flag or exit-code-number changes were introduced. One
+example-only flag was added. All requested agent guides and root entry point are
+present. README, example and contribution minimum versions now agree with go.mod.
+
+## Verification limits
+
+Local execution is Linux AMD64 only; foreign archives were inspected, not run.
+PR CI provides native macOS/Windows verification; its actual results are reported
+in the PR/final report. The modified tag publication workflow cannot be exercised
+end-to-end without a new tag/release, which is intentionally out of scope.
+Signing/notarization, all-architecture runtime coverage, stateful correlation and
+side-effect isolation remain deferred. This audit does not certify arbitrary
+applications or recordings as safe. The published release still predates main's
+Go security update; a later maintainer-controlled release is required to ship it.

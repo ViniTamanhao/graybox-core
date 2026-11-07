@@ -85,7 +85,7 @@ func (r Replacements) apply(request *http.Request, body []byte) error {
 		request.URL.RawQuery = query
 	}
 	if len(matched.JSON)+len(matched.Form) == 0 {
-		return nil
+		return rejectRemainingMarkers(request, body)
 	}
 	var updated []byte
 	if len(matched.JSON) > 0 {
@@ -98,8 +98,25 @@ func (r Replacements) apply(request *http.Request, body []byte) error {
 	if err != nil {
 		return err
 	}
+	if err := rejectRemainingMarkers(request, updated); err != nil {
+		return err
+	}
 	request.Body = io.NopCloser(bytes.NewReader(updated))
 	request.ContentLength = int64(len(updated))
 	request.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(updated)), nil }
+	return nil
+}
+
+// Exact markers in supported fields cannot reconstruct the recorded request.
+// Inspect the outgoing representation after replacements, including legacy
+// recordings without policy metadata, without changing or logging its values.
+func rejectRemainingMarkers(request *http.Request, body []byte) error {
+	markers := (sanitize.Rules{}).WithRecordedQuery(request.URL.String())
+	if request.Header.Get("Content-Encoding") == "" {
+		markers = markers.WithRecordedMarkers(request.Header, body)
+	}
+	if len(markers.JSON)+len(markers.Form)+len(markers.Query) > 0 {
+		return errors.New("cannot replay redacted credential fields without runtime replacements")
+	}
 	return nil
 }

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ViniTamanhao/graybox-core/internal/capture"
 	"github.com/ViniTamanhao/graybox-core/internal/recording"
@@ -452,5 +453,110 @@ func TestProxyContinuesTrafficAndTracksPersistenceFailures(t *testing.T) {
 	}
 	if transportErrors.Load() != 0 {
 		t.Fatalf("persistence failure reported as %d transport errors", transportErrors.Load())
+	}
+}
+
+func TestProxyEarlyHintsPreservesFinalResponse(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Link", "</style.css>; rel=preload")
+		w.WriteHeader(http.StatusEarlyHints)
+		w.Header().Del("Link")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"created":true}`)
+	}))
+	defer upstream.Close()
+	target, _ := url.Parse(upstream.URL)
+	store, err := storage.Create(context.Background(), filepath.Join(t.TempDir(), "hints.graybox"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	proxy := capture.NewProxy(target, store, capture.ErrorHandlers{Persistence: func(err error) { t.Error(err) }})
+	finished := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(finished)
+		proxy.ServeHTTP(w, r)
+	}))
+	defer server.Close()
+	response, err := server.Client().Get(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-finished
+	exchange, err := store.Get(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusCreated || exchange.Response.StatusCode != http.StatusCreated {
+		t.Fatalf("final status: client=%d recording=%d, want 201", response.StatusCode, exchange.Response.StatusCode)
+	}
+	if string(body) != `{"created":true}` || !bytes.Equal(exchange.Response.Body, body) || !exchange.Response.Complete {
+		t.Fatalf("final body not captured intact: %#v", exchange.Response)
+	}
+	if response.Header.Get("Link") != "" || exchange.Response.Headers.Get("Link") != "" {
+		t.Fatal("interim headers leaked into final response")
+	}
+}
+
+func TestProxyEarlyHintsPreservesImplicitOKResponse(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Link", "</style.css>; rel=preload")
+		w.WriteHeader(http.StatusEarlyHints)
+		w.Header().Del("Link")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"created":true}`)
+	}))
+	defer upstream.Close()
+	target, _ := url.Parse(upstream.URL)
+	store, err := storage.Create(ctx, filepath.Join(t.TempDir(), "hints.graybox"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	proxy := capture.NewProxy(target, store, capture.ErrorHandlers{Persistence: func(err error) { t.Error(err) }})
+	finished := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(finished)
+		proxy.ServeHTTP(w, r)
+	}))
+	defer server.Close()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-finished:
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for persistence:", ctx.Err())
+	}
+	exchange, err := store.Get(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusOK || exchange.Response.StatusCode != http.StatusOK {
+		t.Fatalf("final status: client=%d recording=%d, want 200", response.StatusCode, exchange.Response.StatusCode)
+	}
+	if string(body) != `{"created":true}` || !bytes.Equal(exchange.Response.Body, body) || !exchange.Response.Complete {
+		t.Fatalf("final body not captured intact: %#v", exchange.Response)
+	}
+	if response.Header.Get("Link") != "" || exchange.Response.Headers.Get("Link") != "" {
+		t.Fatal("interim headers leaked into final response")
 	}
 }

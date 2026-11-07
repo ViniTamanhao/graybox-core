@@ -3,13 +3,14 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"log"
 	"net/http"
 	"os"
 	"time"
 )
 
-func main() {
+func orderHandler(regressed bool) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /orders/42", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer demo-token" {
@@ -21,6 +22,9 @@ func main() {
 		subtotal := 5000
 		discount := 500
 		total := subtotal - discount
+		if regressed {
+			total = subtotal
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(struct {
@@ -32,6 +36,13 @@ func main() {
 		}{42, "USD", subtotal, discount, total})
 	})
 
+	return mux
+}
+
+func main() {
+	regressed := flag.Bool("regressed", false, "intentionally omit the discount from the total")
+	flag.Parse()
+	mux := orderHandler(*regressed)
 	address := "127.0.0.1:8080"
 	if configured := os.Getenv("GRAYBOX_EXAMPLE_LISTEN"); configured != "" {
 		address = configured
