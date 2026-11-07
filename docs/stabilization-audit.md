@@ -77,3 +77,15 @@ and missing-ID checks, cancellation/deadline/refused-connection checks and a POS
 repetition test demonstrating real side effects. No universal secret-detection
 claim is made. The example now accepts `--regressed` and requires authentication
 in both modes; returning to baseline requires only restarting without the flag.
+
+### Redacted request markers
+
+A focused test confirmed that both commands previously transmitted exact
+`<REDACTED>` JSON/form/query values without replacements and could report false
+workflow equivalence. This contradicted the documented reconstruction rule.
+Replay now checks the outgoing supported representation after replacement and
+refuses remaining marker fields before HTTP execution. Legacy recordings are
+covered without requiring metadata. Existing OAuth replacement tests still pass.
+This is a narrow safety correction: literal marker fields now fail too; CLI flags,
+schema and numerical exit-code meanings remain unchanged. Unsupported formats
+are not an arbitrary-secret detection surface.

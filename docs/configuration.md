@@ -221,3 +221,12 @@ formats, URL paths, unconfigured fields, and unrelated server secrets may still
 contain sensitive data. Recordings and diff output are **not universally safe to
 share**. Review them before sharing. There is no `.env` loading, token refresh,
 response-to-request token extraction, vault, or OAuth orchestration.
+
+
+Recognizable exact `<REDACTED>` values remaining in supported JSON/form request
+fields or decoded query parameters after runtime replacement now fail that
+exchange before transmission. This also applies to legacy recordings without
+policy metadata and to naturally occurring literal markers. Configure every
+required replacement; partial replacement is not sufficient. The failure uses
+the existing replay/diff execution-failure codes, not a new exit code. This is
+not a scan of arbitrary binary, compressed or malformed data for secrets.
