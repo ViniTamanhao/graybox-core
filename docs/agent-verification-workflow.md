@@ -37,20 +37,29 @@ requirements see the [contract](agent-verification-contract.md).
 
    ```bash
    export API_AUTH='Bearer demo-token'
+   umask 077
+   report_dir="$(mktemp -d /tmp/graybox-reports.XXXXXXXXXX)" || exit 1
    # Existing local demo baseline, one relevant request:
    if ./graybox diff order.graybox --id 1 \
      --target http://127.0.0.1:8080 \
      --secret-header Authorization=API_AUTH --json \
-     > comparison.json 2> comparison.stderr; then
+     > "$report_dir/comparison.json" \
+     2> "$report_dir/comparison.stderr"; then
      result=0
    else
      result=$?
    fi
    printf 'Graybox exit: %s\n' "$result"
+   printf 'Reports stored in: %s\n' "$report_dir"
    ```
 
    The conditional preserves nonzero outcomes even in shells using `set -e`.
-   Store these potentially sensitive outputs locally; do not publish them blindly.
+   `mktemp` creates a fresh user-only directory under `/tmp`, outside the checkout
+   even if `TMPDIR` points into it; `umask 077` also restricts new report files.
+   Reports may contain sensitive data despite redaction: never commit them, and
+   inspect them before quoting values in PR descriptions or final reports. Keep
+   them for inspection, then remove the temporary directory when no longer needed.
+   Private storage does not replace safe recording, authentication or target selection.
    For real credentials, use the project's authorized secret provisioning mechanism,
    never literals in task reports. Configuration can supply body/query credentials;
    use `--config FILE` when the working directory is not the intended config location.
