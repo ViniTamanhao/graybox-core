@@ -312,3 +312,43 @@ func TestUnreplacedCredentialMarkersNeverReachTarget(t *testing.T) {
 		}
 	}
 }
+
+func TestTransportFailuresRemainFailedInBothRenderers(t *testing.T) {
+	t.Chdir(t.TempDir())
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		connection, buffer, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer connection.Close()
+		_, _ = buffer.WriteString("HTTP/1.1 200 OK\r\nContent-Length: 20\r\n\r\nshort")
+		_ = buffer.Flush()
+	}))
+	path := hardeningRecording(t, server.URL, []recording.Request{{Method: "GET", URL: "/", Complete: true}}, []recording.Response{{StatusCode: 200, Body: []byte("short"), Complete: true}})
+	defer server.Close()
+	for _, unavailable := range []bool{false, true} {
+		if unavailable {
+			server.Close()
+		}
+		for _, command := range []string{"replay", "diff"} {
+			for _, machine := range []bool{false, true} {
+				var out, errs bytes.Buffer
+				args := []string{command, path}
+				if machine {
+					args = append(args, "--json")
+				}
+				code := (App{Stdout: &out, Stderr: &errs}).Run(context.Background(), args)
+				if code != 3 || errs.Len() != 0 {
+					t.Fatalf("%v unavailable=%v: %d %s", args, unavailable, code, &errs)
+				}
+				if machine && !json.Valid(out.Bytes()) {
+					t.Fatal("invalid JSON")
+				}
+				if command == "diff" && !strings.Contains(out.String(), "failed") {
+					t.Fatal("transport error was not failed")
+				}
+			}
+		}
+	}
+}
