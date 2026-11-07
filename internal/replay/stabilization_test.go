@@ -88,3 +88,24 @@ func TestRepeatedPOSTHasRealSideEffects(t *testing.T) {
 		t.Fatalf("expected two explicit POST side effects, got %d", created.Load())
 	}
 }
+
+func TestPartialCredentialReplacementRefusesRemainingMarker(t *testing.T) {
+	request := httptest.NewRequest("POST", "http://example.test/?token=%3CREDACTED%3E", nil)
+	request.Header.Set("Content-Type", "application/json")
+	body := []byte(`{"first":"<REDACTED>","second":"<REDACTED>"}`)
+	replacements := Replacements{Query: map[string]string{"token": "synthetic-query"}, JSON: map[string]string{"/first": "synthetic-first"}}
+	if err := replacements.apply(request, body); err == nil {
+		t.Fatal("partial body replacement accepted")
+	}
+	replacements.JSON["/second"] = "synthetic-second"
+	if err := replacements.apply(request, body); err != nil {
+		t.Fatal(err)
+	}
+	replaced, err := io.ReadAll(request.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(replaced) != `{"first":"synthetic-first","second":"synthetic-second"}` || request.URL.Query().Get("token") != "synthetic-query" {
+		t.Fatal("complete replacements not applied")
+	}
+}
