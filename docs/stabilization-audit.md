@@ -61,3 +61,19 @@ by 201 reached the client as 200 and was stored as 103. The capture writer now
 forwards informational responses without committing its final status. The test
 checks client and SQLite status, full body and absence of interim-only headers;
 `go test ./internal/capture -count=1` passes after the fix.
+
+### Authenticated workflow and failure coverage
+
+Added a complete CLI record/shutdown/inspect/replay/diff/change/restore test using
+an authenticated loopback server. It independently queries SQLite columns for
+request identity, status, body and mandatory header markers; searches raw file
+bytes for synthetic canaries; checks structured semantic values and exit codes;
+and compares artifact bytes after repeated human and JSON invocations.
+Existing OAuth tests cover custom headers, nested/array JSON, forms, queries,
+response redaction and percent-encoded runtime values; existing hardening tests
+cover JSON escapes, preflight, old policy-less recordings and output sanitization.
+Added explicit 401/403/500 completed-comparison tests, empty/invalid recording
+and missing-ID checks, cancellation/deadline/refused-connection checks and a POST
+repetition test demonstrating real side effects. No universal secret-detection
+claim is made. The example now accepts `--regressed` and requires authentication
+in both modes; returning to baseline requires only restarting without the flag.
