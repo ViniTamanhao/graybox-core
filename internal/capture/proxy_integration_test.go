@@ -454,3 +454,51 @@ func TestProxyContinuesTrafficAndTracksPersistenceFailures(t *testing.T) {
 		t.Fatalf("persistence failure reported as %d transport errors", transportErrors.Load())
 	}
 }
+
+func TestProxyEarlyHintsPreservesFinalResponse(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Link", "</style.css>; rel=preload")
+		w.WriteHeader(http.StatusEarlyHints)
+		w.Header().Del("Link")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, `{"created":true}`)
+	}))
+	defer upstream.Close()
+	target, _ := url.Parse(upstream.URL)
+	store, err := storage.Create(context.Background(), filepath.Join(t.TempDir(), "hints.graybox"), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	proxy := capture.NewProxy(target, store, capture.ErrorHandlers{Persistence: func(err error) { t.Error(err) }})
+	finished := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(finished)
+		proxy.ServeHTTP(w, r)
+	}))
+	defer server.Close()
+	response, err := server.Client().Get(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-finished
+	exchange, err := store.Get(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.StatusCode != http.StatusCreated || exchange.Response.StatusCode != http.StatusCreated {
+		t.Fatalf("final status: client=%d recording=%d, want 201", response.StatusCode, exchange.Response.StatusCode)
+	}
+	if string(body) != `{"created":true}` || !bytes.Equal(exchange.Response.Body, body) || !exchange.Response.Complete {
+		t.Fatalf("final body not captured intact: %#v", exchange.Response)
+	}
+	if response.Header.Get("Link") != "" || exchange.Response.Headers.Get("Link") != "" {
+		t.Fatal("interim headers leaked into final response")
+	}
+}
