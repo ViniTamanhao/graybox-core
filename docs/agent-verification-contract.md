@@ -229,7 +229,9 @@ Phase 1 already tests authenticated capture/change/restore, redaction, runtime
 replacement, immutable artifacts, HTTP errors, transport failures and invalid
 recordings. Milestone 1 adds `TestAgentDiffOutcomeContract` (multi-exchange counts,
 identity, structured differences and failure precedence),
-`TestAgentReplayFailureCardinality`, and `TestAgentCommandFailureChannels`.
+`TestAgentReplayFailureCardinality`, `TestAgentCommandFailureChannels`, and
+`TestAgentHTTPRejectionCanBeEquivalent` (identical 401/500 responses and omitted
+redacted Authorization).
 These passed against existing production code: no behavioral fix was necessary.
 Text-only command diagnostics and absent typed failure causes are documented
 integration limitations, not new interfaces in this milestone. Agent integration

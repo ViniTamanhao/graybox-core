@@ -83,7 +83,7 @@ func TestAgentDiffOutcomeContract(t *testing.T) {
 						Location      struct{ Component, Path string }
 						Before, After struct {
 							Present bool
-							Value   json.Number
+							Value   float64
 						}
 					}
 					Error string
@@ -112,11 +112,11 @@ func TestAgentDiffOutcomeContract(t *testing.T) {
 					t.Fatalf("differences: %s", &out)
 				}
 				d := result.Differences[0]
-				kind, component, location, old, current := "value_changed", "response.body", "/value", "1", "2"
+				kind, component, location, old, current := "value_changed", "response.body", "/value", 1.0, 2.0
 				if result.Outcome == "failed" {
-					kind, component, location, old, current = "status_changed", "response.status", "", "200", "201"
+					kind, component, location, old, current = "status_changed", "response.status", "", 200.0, 201.0
 				}
-				if d.Kind != kind || d.Location.Component != component || d.Location.Path != location || !d.Before.Present || !d.After.Present || d.Before.Value.String() != old || d.After.Value.String() != current {
+				if d.Kind != kind || d.Location.Component != component || d.Location.Path != location || !d.Before.Present || !d.After.Present || d.Before.Value != old || d.After.Value != current {
 					t.Fatalf("structured difference: %s", &out)
 				}
 			}
@@ -195,5 +195,37 @@ func TestAgentCommandFailureChannels(t *testing.T) {
 				t.Fatalf("%v: exit=%d stdout=%s stderr=%s", args, code, &out, &errs)
 			}
 		}
+	}
+}
+
+func TestAgentHTTPRejectionCanBeEquivalent(t *testing.T) {
+	t.Chdir(t.TempDir())
+	for _, status := range []int{401, 500} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != "" {
+					t.Error("redacted header transmitted")
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`{"error":"rejected"}`))
+			}))
+			defer server.Close()
+			path := hardeningRecording(t, server.URL,
+				[]recording.Request{{Method: "GET", URL: "/", Headers: http.Header{"Authorization": {"<REDACTED>"}}, Complete: true}},
+				[]recording.Response{{StatusCode: status, Headers: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"error":"rejected"}`), Complete: true}})
+			var out, errs bytes.Buffer
+			code := (App{Stdout: &out, Stderr: &errs}).Run(context.Background(), []string{"diff", path, "--json"})
+			var report struct {
+				Summary struct{ Total, Equivalent, Changed, Failed int }
+				Results []struct{ Outcome string }
+			}
+			if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+				t.Fatal(err)
+			}
+			if code != 0 || errs.Len() != 0 || report.Summary.Total != 1 || report.Summary.Equivalent != 1 || report.Summary.Changed != 0 || report.Summary.Failed != 0 || len(report.Results) != 1 || report.Results[0].Outcome != "equivalent" {
+				t.Fatalf("exit=%d output=%s stderr=%s", code, &out, &errs)
+			}
+		})
 	}
 }
