@@ -53,3 +53,11 @@ side-effect prevention remain outside Phase 1. Sequential replay is not a
 transaction or a sandbox. Unconfigured secrets and arbitrary server encodings
 are not covered by runtime-value scrubbing. No claim of universal secret safety
 or production readiness follows from passing tests.
+
+### HTTP final-status correction
+
+`TestProxyEarlyHintsPreservesFinalResponse` failed before the fix: a 103 followed
+by 201 reached the client as 200 and was stored as 103. The capture writer now
+forwards informational responses without committing its final status. The test
+checks client and SQLite status, full body and absence of interim-only headers;
+`go test ./internal/capture -count=1` passes after the fix.

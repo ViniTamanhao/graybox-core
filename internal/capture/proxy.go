@@ -266,6 +266,12 @@ func (w *captureWriter) WriteHeader(status int) {
 	if w.wroteHeader {
 		return
 	}
+	// Informational responses do not commit the final response. Forward them
+	// without preventing a later final status (or an implicit 200 on Write).
+	if status >= 100 && status < 200 && status != http.StatusSwitchingProtocols {
+		w.ResponseWriter.WriteHeader(status)
+		return
+	}
 	w.status = status
 	w.wroteHeader = true
 	w.ResponseWriter.WriteHeader(status)

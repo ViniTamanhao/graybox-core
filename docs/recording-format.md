@@ -86,6 +86,11 @@ CREATE INDEX exchanges_status_idx ON exchanges(response_status);
 
 ## Representation
 
+Informational HTTP responses (such as 103 Early Hints) are forwarded, but the
+recording stores the final response status, headers and body, not a history of
+interim responses. Upgraded protocols remain unsupported.
+
+
 - `exchanges.id` is the stable numeric exchange ID used for lookup. SQLite assigns IDs in capture completion order; list output is ordered by `started_at` and then ID.
 - `protocol` is currently `http`. HTTP version-specific framing, including HTTP/2 framing, is not part of the recorded domain model.
 - `request_url` is the origin-form request URI: escaped path plus the raw query representation. Without query rules or runtime query replacements, Graybox preserves that raw representation through capture and replay, including unusual semicolons or percent encoding, for debugging fidelity. Configured query redaction/replacement uses standard URL encoding and normalizes ordering. The replay target supplies scheme and authority.
