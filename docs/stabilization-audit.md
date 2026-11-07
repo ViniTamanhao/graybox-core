@@ -109,3 +109,38 @@ checksums/layouts passed, and the Linux AMD64 executable reported v0.2.3 with
 working help/JSON version. No foreign executable was run locally. Pinned
 `go install .../cmd/graybox@v0.2.3` into a temporary GOBIN succeeded and reported
 `graybox v0.2.3`. Exact-minimum `GOTOOLCHAIN=go1.26.10 go test ./...` passed.
+
+## Final local verification
+
+On Go 1.27.3 linux/amd64, after both fixes:
+
+| Command/check | Result |
+| --- | --- |
+| `go fmt ./...` | Pass; no remaining formatting changes |
+| `go mod tidy` and module diff check | Pass; no dependency changes |
+| `go test ./...` | Pass |
+| `go test -race ./...` | Pass |
+| `go vet ./...` | Pass |
+| `go build ./...` | Pass |
+| `go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...` | Pass; no vulnerabilities found |
+| `GOTOOLCHAIN=go1.26.10 go test ./...` and `go build ./...` | Pass with exact minimum toolchain |
+| `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/ci.yml .github/workflows/release.yml` | Pass |
+| Native packaged final binary smoke | Pass |
+| `git diff --check` and local Markdown link destinations | Pass |
+
+Additional focused tests cover partial credential replacement and transport
+failure rendering; both targeted tests and replay race checks pass. No Go module,
+recording schema, CLI flag or exit-code-number changes were introduced. One
+example-only flag was added. All requested agent guides and root entry point are
+present. README, example and contribution minimum versions now agree with go.mod.
+
+## Verification limits
+
+Local execution is Linux AMD64 only; foreign archives were inspected, not run.
+PR CI provides native macOS/Windows verification; its actual results are reported
+in the PR/final report. The modified tag publication workflow cannot be exercised
+end-to-end without a new tag/release, which is intentionally out of scope.
+Signing/notarization, all-architecture runtime coverage, stateful correlation and
+side-effect isolation remain deferred. This audit does not certify arbitrary
+applications or recordings as safe. The published release still predates main's
+Go security update; a later maintainer-controlled release is required to ship it.
