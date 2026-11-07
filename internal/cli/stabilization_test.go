@@ -283,3 +283,32 @@ func TestEmptyAndInvalidRecordingsCLI(t *testing.T) {
 		}
 	}
 }
+
+func TestUnreplacedCredentialMarkersNeverReachTarget(t *testing.T) {
+	t.Chdir(t.TempDir())
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { t.Error("unreplaced credential marker reached target") }))
+	defer server.Close()
+	for _, request := range []recording.Request{
+		{Method: "POST", URL: "/", Headers: http.Header{"Content-Type": {"application/json"}}, Body: []byte(`{"nested":{"token":"<REDACTED>"}}`), Complete: true},
+		{Method: "POST", URL: "/", Headers: http.Header{"Content-Type": {"application/x-www-form-urlencoded"}}, Body: []byte("token=%3CREDACTED%3E"), Complete: true},
+		{Method: "GET", URL: "/?token=%3CREDACTED%3E", Complete: true},
+	} {
+		path := hardeningRecording(t, server.URL, []recording.Request{request}, []recording.Response{{StatusCode: 200, Complete: true}})
+		for _, command := range []string{"replay", "diff"} {
+			for _, machine := range []bool{false, true} {
+				var out, errs bytes.Buffer
+				args := []string{command, path}
+				if machine {
+					args = append(args, "--json")
+				}
+				code := (App{Stdout: &out, Stderr: &errs}).Run(context.Background(), args)
+				if code != 3 || errs.Len() != 0 || !strings.Contains(out.String(), "redacted credential") {
+					t.Errorf("%v: code %d stdout %s stderr %s", args, code, &out, &errs)
+				}
+				if machine && !json.Valid(out.Bytes()) {
+					t.Error("invalid JSON")
+				}
+			}
+		}
+	}
+}
