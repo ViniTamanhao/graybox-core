@@ -104,3 +104,24 @@ To replay the authenticated request without comparing it:
 
 Stop the API with Ctrl+C when finished. See [behavioral diffing](../../docs/diffing.md)
 and [security](../../docs/SECURITY.md) for details.
+
+
+## Repeat or automate
+
+After capture, reuse the same immutable recording for comparisons. To capture
+again, stop the old recorder and choose a fresh `--output` filename. Stop the
+previous API before switching modes so ports are released. To use another API
+port, set `GRAYBOX_EXAMPLE_LISTEN=127.0.0.1:8081` and pass the matching recorder
+`--target`. These shell examples use Bash; on PowerShell set credentials with
+`$env:API_AUTH = 'Bearer demo-token'` and run `.\graybox.exe`.
+
+The automated local workflow runs without fixed ports or external credentials:
+
+```bash
+go test ./internal/cli -run TestAuthenticatedLifecycle -count=1
+go test ./examples/server -count=1
+```
+
+It verifies capture, stored redaction, authenticated replay, a changed JSON total,
+restored equivalence, JSON output, exit codes and unchanged recording bytes. The
+example handler tests independently verify baseline/regressed prices and auth.

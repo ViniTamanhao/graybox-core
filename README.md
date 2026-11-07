@@ -96,6 +96,9 @@ cd graybox-core
 ```
 
 Prebuilt binaries are available from [GitHub Releases](https://github.com/ViniTamanhao/graybox-core/releases).
+See [installation](docs/installation.md) for pinned installs, PATH setup, checksum
+verification and platform-specific extraction. Checkout builds report `dev`;
+module installs and release binaries report their version.
 
 ## Core commands
 
@@ -146,6 +149,7 @@ are never written back into the recording. Read [Security](docs/SECURITY.md).
 
 ## Documentation
 
+- [Installation and release checks](docs/installation.md)
 - [Configuration](docs/configuration.md): redaction and runtime credentials
 - [Behavioral diffing](docs/diffing.md): comparisons, ignores, exit codes, JSON output
 - [Recording format](docs/recording-format.md)
