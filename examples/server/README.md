@@ -8,7 +8,7 @@ written by the API, so replay is safe to repeat.
 The exercise captures the successful response, introduces a missing-discount
 bug, and uses Graybox to find the exact changed JSON field.
 
-Run all commands from the repository root. You need Go 1.26.6 or newer, curl,
+Run all commands from the repository root. You need Go 1.26.10 or newer, curl,
 and three terminals. Ports 8080 (API) and 9000 (recorder) must be free.
 
 ## 1. Start the API and recorder
@@ -56,24 +56,14 @@ The upstream API received the real credential; Graybox redacted it before storag
 
 ## 3. Change and restart the API
 
-In [main.go](main.go), replace this line:
-
-```go
-total := subtotal - discount
-```
-
-with:
-
-```go
-total := subtotal
-```
-
-This simulates a pricing change accidentally dropping the discount from the total.
-Stop the API with Ctrl+C in terminal 1, then restart:
+Stop the API with Ctrl+C in terminal 1, then restart with the explicit demo flag:
 
 ```bash
-go run ./examples/server
+go run ./examples/server --regressed
 ```
+
+This intentionally omits the discount from the total without editing source.
+The endpoint and authentication stay the same.
 
 ## 4. Diff with a runtime credential
 
@@ -102,7 +92,7 @@ Without `--secret-header`, the stored credential is omitted and the API returns
 
 ## 5. Fix and verify
 
-Restore `total := subtotal - discount`, stop and restart the API in terminal 1,
+Stop the API and restart with `go run ./examples/server` (no `--regressed`) in terminal 1,
 then rerun the diff command in terminal 3. It reports `1 equivalent`, `0 changed`,
 `0 failed` and exits `0`.
 
