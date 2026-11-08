@@ -23,8 +23,10 @@ evidence and limitations; passing tests do not establish universal safety.
 
 Milestone 1 establishes the [verification contract](../docs/agent-verification-contract.md)
 and [practical workflow](../docs/agent-verification-workflow.md), backed by CLI tests.
-The next milestone is implementing and evaluating a reusable Graybox agent skill.
-Agent integration has not yet been validated. Subsequent milestones cover CLI
+Milestone 2 adds a [reusable Codex skill](../docs/agent-skill.md) and
+[reproducible evaluations](../docs/agent-skill-evaluation.md). Structural and
+deterministic checks are separate from live agent evidence; empirical acceptance
+remains subject to the recorded trial results and limitations. Subsequent milestones cover CLI
 improvements driven by integration findings, end-to-end agent experiments, and
 external validation/release.
 
