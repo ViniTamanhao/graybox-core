@@ -4,15 +4,13 @@
 
 As verified on 2026-11-07, the latest published release is
 [v0.2.3](https://github.com/ViniTamanhao/graybox-core/releases/tag/v0.2.3).
-The development branch `chore/phase-1-stabilization` contains the unpublished
-changes pending in [PR #23](https://github.com/ViniTamanhao/graybox-core/pull/23),
-including the HTTP informational-response and redacted-credential replay fixes.
-These fixes are not included in v0.2.3. The proposed next patch release is
-**v0.2.4**, after review and merge; it has not been published.
+[PR #23](https://github.com/ViniTamanhao/graybox-core/pull/23) is merged into
+`main`, including the HTTP informational-response and redacted-credential replay
+fixes. These fixes are not included in v0.2.3. The proposed next patch release is
+**v0.2.4**; it has not been published.
 
-`@latest` and prebuilt release downloads select published versions, not this
-development branch. To try the pending changes, check out
-`chore/phase-1-stabilization` before following the source-build instructions.
+`@latest` and prebuilt release downloads select published versions, not current
+`main`. To try the merged fixes, build from the current source checkout.
 
 ## Source
 
@@ -76,7 +74,7 @@ run `DESTINATION\graybox.exe version`. No chmod is needed on Windows. Binaries
 are not currently signed/notarized; checksum verification detects corruption,
 not compromise of the source of both archive and manifest.
 
-v0.2.3 predates main's Go 1.26.10 security update. This stabilization PR does not
+v0.2.3 predates main's Go 1.26.10 security update. The agent-contract milestone does not
 create a release; use a current source build if that update is required.
 
 ## Maintainer packaging checks (no publishing)

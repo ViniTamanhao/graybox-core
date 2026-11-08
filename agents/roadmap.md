@@ -21,6 +21,13 @@ evidence and limitations; passing tests do not establish universal safety.
 
 ## Phase 2: agent-native workflows (proposed v0.3)
 
+Milestone 1 establishes the [verification contract](../docs/agent-verification-contract.md)
+and [practical workflow](../docs/agent-verification-workflow.md), backed by CLI tests.
+The next milestone is implementing and evaluating a reusable Graybox agent skill.
+Agent integration has not yet been validated. Subsequent milestones cover CLI
+improvements driven by integration findings, end-to-end agent experiments, and
+external validation/release.
+
 Make it straightforward for agents to inspect recordings, replay requests, compare
 responses, interpret structured outcomes and verify code changes. Favor existing
 CLI commands and shared functionality for human and AI consumers. Agent skills

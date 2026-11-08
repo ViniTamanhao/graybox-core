@@ -13,6 +13,12 @@ Understand → Plan → Write failing test → Implement → Refactor
            → Verify → Update documentation → Commit → Repeat
 ```
 
+For API behavior tasks, consider proportionate Graybox verification using the
+[public contract](../docs/agent-verification-contract.md) and
+[workflow](../docs/agent-verification-workflow.md). Require trustworthy baselines
+and authorized safe targets; report missing evidence instead of manufacturing it.
+Replay is not required for documentation or unrelated utility changes.
+
 ## Guides
 
 - [Development](development.md): task execution and completion requirements.
