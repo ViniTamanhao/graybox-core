@@ -31,9 +31,11 @@ reliability retest met its acceptance criteria: two factual credential-blocked
 reports and a regression detected, corrected and verified with private reports
 and scoped cleanup. Milestone 2 is ready for human review; earlier failures and
 limits remain documented, without a general reliability or release-readiness
-claim. Subsequent milestones cover CLI
-improvements driven by integration findings, end-to-end agent experiments, and
-external validation/release.
+claim. Milestone 3 adds an [evidence-driven CLI reliability audit](../docs/agent-cli-reliability.md):
+nine deterministic failure scenarios and five fresh Codex tasks support the
+existing failure contract without a production change. Handoff review trials
+do not establish autonomous recovery. Subsequent milestones cover broader
+end-to-end agent experiments and external validation/release.
 
 Make it straightforward for agents to inspect recordings, replay requests, compare
 responses, interpret structured outcomes and verify code changes. Favor existing

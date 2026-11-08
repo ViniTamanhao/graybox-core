@@ -59,8 +59,10 @@ These public field names/types and meanings are compatibility surfaces:
   `results`. Each result has integer `exchange_id`, strings `method`, `path`,
   `target_url`, numeric `duration_ms`, optional integer `status`, optional string
   `status_text`, optional string `error`. Missing status is not status 0 on the
-  wire. A body-read failure can have both a status and an error. Check `error`
-  before counting completion. `succeeded` means HTTP execution completed, even
+  wire. Compact replay omits status/status_text on execution errors, including
+  response-body read failures after headers arrived. Check `error` before
+  counting completion; absent status does not prove the server sent no headers.
+  `succeeded` means HTTP execution completed, even
   for 401 or 500; it says nothing about equivalence or business success.
 
 `--id POSITIVE_ID` selects one exchange for replay/diff; without it, every
