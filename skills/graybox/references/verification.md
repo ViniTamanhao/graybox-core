@@ -37,6 +37,12 @@ Startup JSON is not completion. A post-change recording cannot establish
 historical equivalence. If reference state is unavailable, report unexecuted
 comparison and proceed with ordinary tests.
 
+When investigating a suspected regression or resuming a partially completed
+refactor, compare the current build against the trusted baseline **before fixing**
+the suspected difference when safe. Preserve the observed delta, then correct and
+rerun. A final equivalent result alone does not show which defect was detected;
+if an earlier comparison was blocked or omitted, state that limitation.
+
 ## Execute safely and retain channels
 
 After safety review, supply the authorized full header through `API_AUTH` without

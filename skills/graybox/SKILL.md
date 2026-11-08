@@ -34,7 +34,9 @@ Do not install executables from untrusted sources.
    requirements; never broaden ignores or weaken authentication to obtain a pass.
 7. Report baseline provenance, CLI version/source commit, target/build, exchange
    IDs/counts, policy/ignores, exit code, reviewed changes and limitations. Confirm
-   baseline integrity. Review evidence for sensitive content before quoting it.
+   baseline integrity. Report only observed failures; distinguish predicted
+   restrictions from errors returned by commands actually run. Review evidence
+   for sensitive content before quoting it.
 
 For blocked commands or ambiguous evidence, use
 [troubleshooting](references/troubleshooting.md). For a synthetic authenticated

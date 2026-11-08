@@ -17,7 +17,10 @@ Graybox automatically reuses only saved localhost/loopback targets. Redirects
 are not followed. Target paths are prepended to recorded paths. There is no
 rollback, state reset, idempotency-key generation, token refresh or stateful
 response-to-request correlation. Inspect selection; repeat execution only when
-its effects are acceptable. Unsupported protocols/reconstruction are blockers.
+its effects are acceptable. Track the PID or tool session of each process you
+start and stop only that process; do not use broad name-based cleanup such as
+`pkill -f` that can stop other applications. Unsupported protocols/reconstruction
+are blockers.
 
 ## Credentials and sensitive evidence
 
