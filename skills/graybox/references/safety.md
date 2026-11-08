@@ -36,8 +36,10 @@ Set-Cookie headers. Configure other sensitive fields **before capture**. Runtime
 replacement does not retroactively redact captured fields. Paths, unconfigured
 values, personal data and transformed secrets may remain; output scrubbing is
 not universal secret detection. Treat recordings, diagnostics and reports as
-sensitive. Use private temporary storage outside the checkout, never commit
-recordings or raw transcripts, and review any shared summary.
+sensitive. Use a fresh private temporary directory outside the checkout, created
+with `umask 077` and `mktemp -d`. Do not use predictable shared `/tmp` filenames
+or reuse a directory created by another process. Never commit recordings or raw
+transcripts, and review any shared summary.
 
 Preserve baseline bytes and provenance. Never overwrite or reconstruct historical
 evidence to pass, silently expand ignores, or ignore unavailable body evidence
