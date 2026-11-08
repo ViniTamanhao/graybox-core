@@ -25,9 +25,13 @@ Milestone 1 establishes the [verification contract](../docs/agent-verification-c
 and [practical workflow](../docs/agent-verification-workflow.md), backed by CLI tests.
 Milestone 2 adds a [reusable Codex skill](../docs/agent-skill.md) and
 [reproducible evaluations](../docs/agent-skill-evaluation.md). Structural and
-deterministic checks are separate from live agent evidence; eleven real Codex trials exercised all seven scenarios. Useful verification was
-observed, but factual-reporting and report-directory discipline gaps mean full
-empirical acceptance remains open; see the recorded results and limitations. Subsequent milestones cover CLI
+deterministic checks are separate from live agent evidence. Sixteen real Codex
+sessions across two rounds include a matched no-skill control. The focused
+reliability retest met its acceptance criteria: two factual credential-blocked
+reports and a regression detected, corrected and verified with private reports
+and scoped cleanup. Milestone 2 is ready for human review; earlier failures and
+limits remain documented, without a general reliability or release-readiness
+claim. Subsequent milestones cover CLI
 improvements driven by integration findings, end-to-end agent experiments, and
 external validation/release.
 

@@ -85,6 +85,12 @@ unverified. Review affected locations against requirements, and require a rerun
 after fixing regressions. Protected values and unrecorded paths remain outside
 the claim. Never silently widen ignores or replace a baseline to pass.
 
+Before accepting a verification claim, match it to an executed command and its
+observed output/status. A skipped comparison has no runtime error or equivalence
+result. The skill separates executed observations from not-executed checks and
+requires a final evidence review; see the [retest results](agent-skill-evaluation.md#round-2-verification-and-acceptance)
+for the bounded validation and remaining limits.
+
 Reports and recordings remain potentially sensitive despite redaction. Keep them
 in private temporary storage outside version control; publish only reviewed
 summaries. Try the [synthetic authenticated exercise](../skills/graybox/examples/authenticated-api.md)
