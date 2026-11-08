@@ -23,20 +23,22 @@ Do not install executables from untrusted sources.
 3. Read [safety](references/safety.md) before sending traffic. Inspect methods,
    payloads, completeness and authentication; establish target process/build and
    side effects independently. Loopback is not proof of safety.
-4. Make the requested change, run normal tests, and start the intended build.
-   Diff only relevant exchanges against the safe target. `diff` already replays;
-   do not precede it with an unnecessary `replay`.
+4. Make the requested change and run normal tests. When comparison is authorized,
+   start the intended build and retain its PID/tool session for scoped shutdown.
+   Before diff, create a fresh private directory outside the checkout using the
+   [capture pattern](references/verification.md#execute-safely-and-retain-channels);
+   store stdout, stderr and exit status there. `diff` already replays; select only
+   relevant exchanges and do not precede it with an unnecessary `replay`.
 5. Capture exit status, stdout and stderr separately. Parse JSON and require
    nonempty relevant results with consistent counts. Distinguish equivalent,
    changed, failed, command failure and unexecuted verification.
 6. Investigate unexpected differences by exchange and field. Fix actual
    regressions and rerun tests/diff when safe. Judge intended changes against
    requirements; never broaden ignores or weaken authentication to obtain a pass.
-7. Report baseline provenance, CLI version/source commit, target/build, exchange
-   IDs/counts, policy/ignores, exit code, reviewed changes and limitations. Confirm
-   baseline integrity. Report only observed failures; distinguish predicted
-   restrictions from errors returned by commands actually run. Review evidence
-   for sensitive content before quoting it.
+7. Before answering, reconcile each verification claim against this session’s
+   command results using the [report check](references/verification.md#reconcile-evidence-before-reporting).
+   Separate executed/observed from not executed; omit unsupported error claims.
+   Confirm baseline integrity and review quoted evidence for sensitive content.
 
 For blocked commands or ambiguous evidence, use
 [troubleshooting](references/troubleshooting.md). For a synthetic authenticated

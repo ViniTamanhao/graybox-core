@@ -238,3 +238,24 @@ unauthorized/unnecessary replay; report-file safety is scored separately. Final
 private-directory wording was not live-tested, and the credential-reporting fix
 did not eliminate the observed problem. These failures are retained rather than
 converted into a blanket milestone pass.
+
+## Reliability round 2 — protocol
+
+This follow-up preserves the eleven earlier trials and their failures above.
+PR #25 was confirmed open/draft at `e705e8b`, with the original three-platform CI
+and CodeQL checks successful. Earlier raw `/tmp` traces were no longer available;
+this iteration reviewed the committed sanitized evidence and uses new traces.
+
+Hypothesis: a final command-to-evidence reconciliation procedure will reduce
+unsupported error claims more effectively than a general “report only observed
+failures” instruction. The skill now requires an execution ledger, explicit
+not-executed states, and a factual-clause check before answering. Report capture
+is a visible prerequisite with a fresh private directory and retained exit code;
+PID/session ownership and permissions are checked explicitly.
+
+The fixed retest protocol is two credential-blocked sessions, one seeded-regression
+session, and a matched skill/no-skill refactor pair. Existing scenario prompts and
+criteria are unchanged. The pair shares copied pristine application, baseline,
+CLI and task bytes; only skill availability intentionally differs. See the
+[runner guide](../evaluations/agent-skill/README.md) for grading details. Results
+will be appended only after inspecting actual execution evidence.

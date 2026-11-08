@@ -50,9 +50,13 @@ printing it. `--secret-header Authorization=API_AUTH` reads that variable.
 For body/form/query mappings use supported `${ENV_VAR}` configuration references;
 see [configuration](https://github.com/ViniTamanhao/graybox-core/blob/main/docs/configuration.md).
 Configuration loads from CWD only or explicit `--config FILE`; inspect the policy.
-Missing credentials are a blocker, not permission to guess.
+Missing credentials are a blocker, not permission to guess. If this already
+prevents authorized comparison, record it as not executed; do not start a server
+solely to manufacture an additional failure reason.
 
-Bash example (set `baseline`, `target`, and `exchange_id` to inspected values):
+Use this capture pattern for each comparison, with `baseline`, `target` and
+`exchange_id` set to inspected values. Create the directory before redirection;
+`mkdir -p /tmp/fixed-name` is not a substitute for fresh private storage:
 
 ```bash
 umask 077
@@ -64,6 +68,7 @@ if graybox diff "$baseline" --id "$exchange_id" --target "$target" \
 else
   result=$?
 fi
+printf '%s\n' "$result" > "$report_dir/exit-code"
 printf 'Graybox exit: %s\n' "$result"
 ```
 
@@ -110,3 +115,38 @@ Rerun after relevant code/config/build changes, with side effects reassessed.
 Report version/commit, baseline provenance/digest, independently verified target,
 IDs/counts, exit, policy and locations, plus unverified behavior. Never claim an
 empty success or an unexecuted command verifies preservation.
+
+
+## Reconcile evidence before reporting
+
+Before drafting the final answer, review this session's actual tool results and
+make a short evidence ledger (in context, or inside the private report directory):
+
+| Action | Execution evidence | Supported result |
+| --- | --- | --- |
+| Tests/build | Actual command, observed exit, returned output | Only the checks whose results were observed |
+| Server startup/shutdown | Started PID/tool session and its output/status | Started, stopped, or an actual returned error; otherwise unknown |
+| Graybox comparison | Actual command, exit, stdout/stderr paths, JSON parse/count check | Equivalent, changed or failed for identified exchanges; otherwise unverified |
+| Skipped action | Not executed, with the authorization/prerequisite reason | No exit code, runtime error or comparison result exists |
+
+Match **each factual clause** in the final response to a ledger entry. Remove
+claims without supporting results. A planned command, expected sandbox restriction,
+or another session's failure is not execution evidence. A tool denying permission
+before launch means “not executed: tool permission denied,” not “the application
+failed.” If a returned exit/channel is unavailable, mark it unknown; do not fill
+it in from expectations. Ordinary test success never substitutes for a diff.
+
+Use a compact final report: **Executed and observed**, **Not executed**,
+**Observed differences** when present, and **Limitations/conclusion**. Combine
+these into a few sentences when appropriate. Include baseline provenance/digest,
+CLI version/source, target/build, selected IDs/counts, policy and exits for actual
+comparisons. Quote only reviewed nonsensitive evidence. For each error claim,
+check that its originating command and returned diagnostic are in this session.
+Do not run an unauthorized or unnecessary command merely to support a report.
+
+For example, if tests passed but credentials were unavailable: “Tests passed
+(exit 0). Graybox comparison was not executed because no runtime credential was
+authorized. API equivalence remains unverified.” Do **not** add “server startup
+failed because sockets were denied” unless startup was actually attempted and
+that diagnostic was returned. A predicted restriction, if relevant at all, must
+be explicitly labeled as an untested expectation.

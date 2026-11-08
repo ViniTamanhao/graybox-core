@@ -39,7 +39,12 @@ not universal secret detection. Treat recordings, diagnostics and reports as
 sensitive. Use a fresh private temporary directory outside the checkout, created
 with `umask 077` and `mktemp -d`. Do not use predictable shared `/tmp` filenames
 or reuse a directory created by another process. Never commit recordings or raw
-transcripts, and review any shared summary.
+transcripts, and review any shared summary. Confirm the directory is owned by
+you with owner-only access (0700 on POSIX) before retaining sensitive output;
+new report files should be owner-only (0600). Keep the captured exit beside the
+stdout/stderr files. Retain evidence for review, then remove only the directory
+you created. Gracefully stop the recorded PID/tool session and verify it ended;
+never infer process ownership from its executable name alone.
 
 Preserve baseline bytes and provenance. Never overwrite or reconstruct historical
 evidence to pass, silently expand ignores, or ignore unavailable body evidence

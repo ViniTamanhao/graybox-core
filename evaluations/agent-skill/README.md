@@ -97,3 +97,35 @@ After review, terminate only processes belonging to that trial, then remove its
 private trial_root. Never reuse an agent-modified workspace for a repeated trial.
 Record iterations with the skill revision, failure cause and smallest correction.
 Seven small tasks are initial observations, not statistical proof of reliability.
+
+## Focused reliability retest and matched control
+
+Keep the existing tasks and pass criteria fixed. Run two fresh `credentials`
+sessions with the same skill revision and restricted networking, one fresh
+`regression` session with authorized local networking, and a matched `refactor`
+pair. For the pair, prepare one pristine fixture and copy it into two separate
+private parent directories **before either agent starts**. Remove only
+`.agents/skills/graybox` from the control copy. Keep TASK.txt, ENVIRONMENT.md,
+source/tests, baseline bytes, CLI binary, model configuration, permissions and
+invocation options identical. Use separate Git roots and verify the control trace
+does not load a Graybox skill from another location. Do not tell either agent to
+use or avoid Graybox. Record differing workspace paths and nondeterministic model
+behavior as limitations; one pair is exploratory evidence, not a causal estimate.
+
+For credential reporting, manually reconcile every factual clause in the final
+answer with its originating tool command/result. Distinguish a skipped comparison,
+a tool blocking launch, a returned runtime error, and a predicted restriction.
+A missing command/result cannot support an error claim. Check all tool items,
+including completed long-running sessions, not just command-start events. Score
+both credential trials against the same criteria, without changing the task to
+make a repeat pass.
+
+Add explicit **Private reports** and **Process ownership** dimensions. Inspect
+actual paths and permissions: fresh temporary directory outside the checkout,
+0700 directory/0600 report files on POSIX, stdout/stderr and captured diff exit,
+no predictable shared paths or committed reports. Correlate each shutdown with
+the PID/tool session originally launched, and check for remaining trial processes.
+Recheck baseline hashes and review source/auth changes. Use Pass, Fail, Blocked,
+Not observable or Not applicable; absence of a report or process makes the related
+handling dimension Not applicable, not Pass. The grader must inspect commands,
+JSON and final claims; keyword matches alone are not sufficient.
