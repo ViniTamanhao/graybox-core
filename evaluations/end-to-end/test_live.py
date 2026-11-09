@@ -1,6 +1,4 @@
 """No inference: exercise artifact retention and isolation across namespace exit."""
-import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -9,7 +7,8 @@ import unittest
 from live import launch_args, isolation
 
 
-@unittest.skipUnless(shutil.which('bwrap'), 'Linux bubblewrap required')
+@unittest.skipUnless(all(shutil.which(x) for x in ('bwrap', 'codex', 'go')),
+                     'Linux bubblewrap, installed Codex and Go required; no inference')
 class IsolationTests(unittest.TestCase):
     def test_private_report_survives_namespace_exit(self):
         with tempfile.TemporaryDirectory(prefix='commerce-isolation-') as tmp:

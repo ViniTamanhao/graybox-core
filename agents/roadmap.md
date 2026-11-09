@@ -34,8 +34,16 @@ limits remain documented, without a general reliability or release-readiness
 claim. Milestone 3 adds an [evidence-driven CLI reliability audit](../docs/agent-cli-reliability.md):
 nine deterministic failure scenarios and five fresh Codex tasks support the
 existing failure contract without a production change. Handoff review trials
-do not establish autonomous recovery. Subsequent milestones cover broader
-end-to-end agent experiments and external validation/release.
+do not establish autonomous recovery. Milestone 4 adds a [controlled end-to-end campaign](../docs/agent-end-to-end-evaluation.md)
+with a disposable SQLite commerce API and isolated independent HTTP grading.
+Nine real Codex sessions (three tasks × ordinary/CLI/CLI-plus-skill conditions)
+passed all 267 acceptance checks. Skill-enabled sessions supplied more historical
+verification, including a seeded pre-fix difference and an intentional change;
+controls also succeeded, so improved final correctness is not established.
+No agent-generated regression occurred in observed evidence. Raw temporary report
+retention failed in the first campaign and the evaluator was corrected; traces
+and final source remained private. External developer validation and harder
+balanced tasks remain next steps, not completed release-readiness evidence.
 
 Make it straightforward for agents to inspect recordings, replay requests, compare
 responses, interpret structured outcomes and verify code changes. Favor existing
