@@ -35,3 +35,8 @@ transcripts and databases stay private outside Git. No production change without
 independent defect reproduction. Repeated writes require stopped-service reset;
 no automatic HTTP retries. Read-only comparisons do not establish transactional
 rollback, dynamic ID correlation, concurrency safety or unrecorded coverage.
+
+Execution scheduling: up to three simultaneous isolated sessions in randomized
+submission order, with per-trial build caches and equal limits. Shared CPU/network
+load is an efficiency confound; no runtime significance claim. Launcher probes
+use a separate campaign root. Protocol/grader are committed before coding trials.

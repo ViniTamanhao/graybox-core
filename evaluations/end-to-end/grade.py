@@ -54,4 +54,7 @@ def grade(url, task, auth, other):
     check("shipped-cancel","POST","/orders/42/cancel",None,(409,dict(error="invalid_state")),critical=True)
     check("shipped-preserved","GET","/orders/42",None,(200,dict(id=42,state="shipped",subtotal_cents=10000,discount_cents=1000,total_cents=9000)),critical=True)
     check("other-owner-preserved","GET","/orders/41",None,(200,dict(id=41,state="pending",subtotal_cents=5,discount_cents=0,total_cents=5)),other,True)
+    if task == "feature":
+        check("loyal-create", "POST", "/orders", dict(product_id=3,quantity=1,code="LOYAL15"), (201,dict(id=44,state="pending",subtotal_cents=10000,discount_cents=1500,total_cents=8500)))
+        check("loyal-create-persisted", "GET", "/orders/44", None, (200,dict(id=44,state="pending",subtotal_cents=10000,discount_cents=1500,total_cents=8500)))
     return dict(passed=sum(x['passed'] for x in results),total=len(results),critical_failures=sum(x['critical'] and not x['passed'] for x in results),results=results)

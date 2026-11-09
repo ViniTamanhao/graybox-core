@@ -29,3 +29,73 @@ seeding defects, preserves provenance/digests and independently grades HTTP.
 Never commit databases, recordings, binaries, raw reports or conversations.
 Acceptance code remains evaluator-side, absent from trial mounts and Git history.
 See the runner's help and evaluation report for executed commands and limitations.
+
+## Deterministic verification and preparation
+
+```bash
+python evaluations/end-to-end/runner.py check
+umask 077
+campaign_parent="$(mktemp -d /tmp/commerce-campaign.XXXXXXXX)"
+python evaluations/end-to-end/runner.py prepare --root "$campaign_parent/run"
+```
+
+`check` grades the reference over real HTTP including process restart persistence,
+checks four captured sets against reset reference state, independently rejects the
+seeded defect, observes it in a real diff, and grades a known feature implementation.
+It removes its own temporary tree and stops its owned processes. No paid inference.
+`prepare` refuses an existing output root. It creates nine pristine workspaces,
+private runtime credentials, immutable baseline provenance and randomized order.
+The reference traffic contains 14 exchanges: reads (3), pure quotes (5), ordered
+writes (5), and unauthenticated rejection (1). Captures use mandatory header
+redaction; only synthetic product/quantity/code fields are retained. Never inject
+a successful credential into the unauthenticated set. Never run writes against
+non-reset state. The recorder reserve/rebind port race fails explicitly.
+
+## Actual agents
+
+Use a separate preparation root for launcher probes; never count probes as trials.
+
+```bash
+python evaluations/end-to-end/live.py probe --root "$campaign_parent/run"
+# Prepare a fresh campaign after the probe succeeds, then:
+python evaluations/end-to-end/live.py run --root /path/to/fresh/campaign
+# Or one predeclared cell:
+python evaluations/end-to-end/live.py run --root /path/to/fresh/campaign --trial refactor-A
+```
+
+The launcher uses real `codex exec --ephemeral --sandbox workspace-write --json`
+and `sandbox_workspace_write.network_access=true`, model gpt-6-astra/medium,
+900-second per-trial deadline. Change model only before a new entire campaign.
+It copies local Codex authentication privately; never publish that directory.
+The launcher needs host network access to inference and local fixture sockets.
+Networking is broader than loopback, but task authorization is fixture-only.
+Official [noninteractive execution](https://learn.chatgpt.com/docs/non-interactive-mode)
+and [skill discovery](https://learn.chatgpt.com/docs/build-skills) were consulted;
+installed CLI help determines supported flags.
+
+Bubblewrap mounts only that trial's source and private home over hidden host
+`/home`, `/tmp`, `/run`, with a separate PID namespace. Go toolchain/module cache
+are read-only; build cache is per-trial. Resolver file and Codex companion binaries
+are mounted explicitly. The evaluator repo, sibling trials, hidden grader and
+host Codex history are tested absent before invocation. C installs the unchanged
+skill in `.agents/skills/graybox`; A/B have no copy. No baseline exists in A's
+source, Git history or PATH. No GitHub remote is configured in a trial.
+
+After namespace termination the evaluator builds and grades the final source
+without altering it (only fresh binary/database outputs). JSONL, stderr, final
+response, metadata, source diff, integrity and grading remain private. Review
+actual command items and source changes manually; the launcher does not score
+agent reasoning. Inspect any timeout/blocked cell before deciding on a fresh repeat.
+Do not rerun a completed cell in place. Namespace teardown kills remaining owned
+processes; agent cleanup itself must be scored separately from evaluator cleanup.
+Reports written into the namespace's temporary `/tmp` disappear at teardown;
+agent reports needed for later audit should live in its private home outside the
+checkout. Tool output remains in JSONL. Retain evidence only as long as needed.
+
+## External developer procedure
+
+Build Graybox from the reviewed revision; prepare this disposable fixture and
+choose C to install the reusable skill. Run an ordinary task, examine independent
+grading and actual comparisons, then share only reviewed counts, setup friction,
+and unexpected behavior. No production credentials or traffic are needed. No
+external participant or independent human review is implied by this guide.
