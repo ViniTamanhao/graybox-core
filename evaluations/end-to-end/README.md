@@ -58,7 +58,7 @@ Use a separate preparation root for launcher probes; never count probes as trial
 ```bash
 python evaluations/end-to-end/live.py probe --root "$campaign_parent/run"
 # Prepare a fresh campaign after the probe succeeds, then:
-python evaluations/end-to-end/live.py run --root /path/to/fresh/campaign
+python evaluations/end-to-end/live.py run --root /path/to/fresh/campaign --jobs 3
 # Or one predeclared cell:
 python evaluations/end-to-end/live.py run --root /path/to/fresh/campaign --trial refactor-A
 ```
@@ -88,9 +88,12 @@ actual command items and source changes manually; the launcher does not score
 agent reasoning. Inspect any timeout/blocked cell before deciding on a fresh repeat.
 Do not rerun a completed cell in place. Namespace teardown kills remaining owned
 processes; agent cleanup itself must be scored separately from evaluator cleanup.
-Reports written into the namespace's temporary `/tmp` disappear at teardown;
-agent reports needed for later audit should live in its private home outside the
-checkout. Tool output remains in JSONL. Retain evidence only as long as needed.
+A private per-trial `scratch/` backs the isolated `/tmp`, retaining reports after
+namespace teardown without exposing host temporary files. This was corrected
+after the initial campaign; that campaign lost raw temporary reports, as disclosed
+in the evaluation report. Tool output remains in JSONL. Retain evidence only as
+long as needed. Run `python -m unittest discover -s evaluations/end-to-end -v`
+to check report retention and hidden-file isolation without inference.
 
 ## External developer procedure
 

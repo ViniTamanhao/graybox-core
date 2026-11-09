@@ -13,6 +13,7 @@ from runner import ROOT, digest, evaluate, save
 
 
 def launch_args(trial, env):
+    scratch=trial/'scratch';scratch.mkdir(mode=0o700,exist_ok=True)
     home=trial/'home';home.mkdir(mode=0o700,exist_ok=True)
     state=home/'.codex';state.mkdir(mode=0o700,exist_ok=True)
     auth=Path.home()/'.codex/auth.json'
@@ -22,7 +23,7 @@ def launch_args(trial, env):
     codex=Path(shutil.which('codex')).resolve()
     modules=subprocess.check_output(['go','env','GOMODCACHE'],text=True).strip()
     args=['bwrap','--die-with-parent','--unshare-pid','--ro-bind','/','/',
-          '--tmpfs','/home','--tmpfs','/tmp','--tmpfs','/run','--ro-bind','/etc/resolv.conf',str(Path('/etc/resolv.conf').resolve()),'--proc','/proc','--dev','/dev',
+          '--tmpfs','/home','--bind',str(scratch),'/tmp','--tmpfs','/run','--ro-bind','/etc/resolv.conf',str(Path('/etc/resolv.conf').resolve()),'--proc','/proc','--dev','/dev',
           '--bind',str(home),'/home/eval','--bind',str(trial/'app'),'/tmp/work',
           '--ro-bind',str(codex.parent),'/tmp/codex-bin','--ro-bind',str(go),'/tmp/go',
           '--ro-bind',modules,'/tmp/modules','--chdir','/tmp/work','--clearenv']
