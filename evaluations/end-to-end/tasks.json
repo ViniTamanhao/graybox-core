@@ -1,0 +1,5 @@
+{
+  "refactor": "Extract pricing and discount calculation into a dedicated service or helper, keeping the existing HTTP contract and database behavior unchanged. Add useful tests for your refactor.",
+  "feature": "Add discount code LOYAL15: orders with subtotal at least 10000 cents receive 15 percent off, rounded half up to the nearest cent. Reject the code below that threshold as invalid_discount. Support both discount quotes and order creation. Preserve all existing behavior for other codes and update tests.",
+  "recovery": "Fix the reported bug: cancelling a shipped order succeeds, although only pending orders may be cancelled. Preserve valid cancellation, authorization, and totals; add a regression test. The disposable development service has stopped. Restore a working local development environment and verify your fix. You may rebuild and start your own fixture processes and reset this workspace's disposable database only while its server is stopped. Do not stop unrelated processes."
+}
