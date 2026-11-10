@@ -1,14 +1,27 @@
-# Use Graybox with Codex
+# Agent Skills integration
 
-The reusable [skill](../skills/graybox/SKILL.md) helps Codex consider recorded HTTP
+The reusable [skill](../skills/graybox/SKILL.md) helps compatible coding agents consider recorded HTTP
 behavior during API refactors, serialization/authentication/middleware changes,
 business-logic updates and API fixes. It supplements ordinary tests. It skips
 unrelated documentation, styling and utility tasks; it reports blockers when
 baseline provenance, credentials or replay safety cannot be established.
 
-Codex is the reference agent (CLI 0.167.0 tested). Other agents are not validated.
-See the [evaluation report](agent-skill-evaluation.md) for actual evidence and
-limits. Skill installation and CLI installation are separate.
+One canonical package under `skills/graybox` supplies workflow guidance; the CLI
+remains the execution engine and works independently of any agent. The portable
+update is unreleased; the v0.3.0 tagged package remains unchanged. See the
+[portability report](agent-skill-portability.md) for sources and current checks,
+and [historical Codex evidence](agent-skill-evaluation.md).
+
+| Client | Project location | Personal location | Current package evidence |
+| --- | --- | --- | --- |
+| Codex | `.agents/skills/graybox` | `~/.agents/skills/graybox` | Validated: fresh bounded CLI trials; see report |
+| Claude Code | `.claude/skills/graybox` | `~/.claude/skills/graybox` | Structurally compatible; live blocked |
+| Cursor | `.agents/skills/graybox` or `.cursor/skills/graybox` | `~/.agents/skills/graybox` or `~/.cursor/skills/graybox` | Structurally compatible; live blocked |
+| Copilot CLI / VS Code agent mode | `.agents/skills/graybox` or `.github/skills/graybox` | `~/.agents/skills/graybox` or `~/.copilot/skills/graybox` (surface dependent) | Structurally compatible; live blocked |
+
+Prefer one `.agents` copy shared by Codex, Cursor and compatible Copilot surfaces;
+use Claude Code's documented `.claude` location. Avoid duplicate names per client.
+These are official discovery conventions, not runtime guarantees.
 
 ## 1. Install the CLI
 
@@ -42,9 +55,22 @@ Then change to your application's repository (for example `cd ~/src/my-api`):
 
 ```bash
 mkdir -p .agents/skills
-test ! -e .agents/skills/graybox || { printf 'Review existing skill before updating\n'; exit 1; }
+test ! -e .agents/skills/graybox && test ! -L .agents/skills/graybox || { printf 'Review existing skill before updating\n'; exit 1; }
 cp -R "$graybox_source/skills/graybox" .agents/skills/graybox
 ```
+
+For the **unreleased updated skill**, clone the source and check out a reviewed
+full commit SHA instead of the v0.3.0 tag; record `git rev-parse HEAD` and review
+local changes. Use that checkout as `graybox_source`. Do not label moving main
+as the stable package. For source development, install the CLI separately with
+`go install ./cmd/graybox` and record its source revision.
+
+The commands use POSIX shell tools. Substitute `.claude/skills` for Claude Code,
+`.cursor/skills` for Cursor-only use, or `.github/skills` for Copilot-only use.
+Copy the entire package. Verify `SKILL.md`, three reference Markdown files and
+`examples/authenticated-api.md` exist. Windows users need equivalent native copy
+and existence/link checks; native Windows installation was not tested. No
+installer, privileged operation or downloaded shell execution is needed.
 
 After copying, you can remove the temporary checkout. The application needs
 only this small directory, not the Graybox source tree or
@@ -106,3 +132,23 @@ Reports and recordings remain potentially sensitive despite redaction. Keep them
 in private temporary storage outside version control; publish only reviewed
 summaries. Try the [synthetic authenticated exercise](../skills/graybox/examples/authenticated-api.md)
 or follow the [full workflow](agent-verification-workflow.md).
+
+## Other clients and troubleshooting
+
+Claude Code offers `/graybox`; Cursor offers `/` skill search and its skill
+settings. Copilot CLI documents `/skills reload`, `/skills info graybox` and
+`/graybox`. VS Code requires agent mode and a version supporting skills. These
+checks are documented, not fresh runtime evidence. Automatic activation depends
+on the description, task, configuration and model; it is not guaranteed.
+
+If discovery fails, check scope, exact filename, duplicate names and client policy,
+then reload/restart. Check CLI PATH separately. Missing trusted baseline,
+credentials or target authorization blocks replay: continue ordinary development
+and report the limitation. Never weaken authentication or recapture changed
+behavior to pass. Remote agents cannot assume access to local recordings,
+credentials or loopback services; prepare an authorized disposable runtime there.
+
+For an authenticated handler refactor, inspect the accepted baseline and target,
+provision runtime credentials, change the code, run ordinary tests, diff selected
+IDs, investigate differences and reverify corrections. Use the packaged synthetic
+exercise for a concrete example. Sensitive evidence stays private outside Git.

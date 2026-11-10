@@ -69,3 +69,13 @@ mandatory cloud services, large dashboards, arbitrary network traffic capture or
 unnecessary enterprise infrastructure. Possible commercial work (shared
 baselines, CI history, organizational policy, team collaboration) must not
 displace the free local CLI.
+
+## Post-v0.3: Milestone 5.1 interoperability
+
+Preserve one canonical Agent Skills package across Codex, Claude Code, Cursor
+and Copilot. The [portability report](../docs/agent-skill-portability.md) separates
+structural checks from live trials and unavailable clients. This is unreleased
+work, not a change to v0.3.0 historical evidence. Complete matched live adoption
+trials before broadening runtime claims. An MCP adapter could later expose CLI
+operations, but needs separate authorization and credential design and is not
+required for skills.
