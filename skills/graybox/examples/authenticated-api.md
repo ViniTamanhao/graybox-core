@@ -1,7 +1,7 @@
 # Authenticated order exercise
 
 This manual exercise uses Graybox's public synthetic
-[order example](https://github.com/ViniTamanhao/graybox-core/tree/main/examples/server),
+[order example](https://github.com/ViniTamanhao/graybox-core/tree/v0.3.0/examples/server),
 not a production API. The skill itself needs no source checkout; this optional
 exercise does. From an inspected Graybox source checkout, build the CLI and API
 into a private temporary directory, and use three terminals. Go and curl are
