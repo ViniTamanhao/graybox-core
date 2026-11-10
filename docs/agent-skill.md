@@ -12,17 +12,15 @@ limits. Skill installation and CLI installation are separate.
 
 ## 1. Install the CLI
 
-Use the [installation guide](installation.md). The v0.3.0 skill and CLI are a
-matching release pair. v0.3.0 is currently unpublished: use a reviewed candidate
-checkout for both, and record its commit. Before publication:
+Use the [installation guide](installation.md) to install the released v0.3.0 CLI:
 
 ```bash
-go install ./cmd/graybox
+go install github.com/ViniTamanhao/graybox-core/cmd/graybox@v0.3.0
 ```
 
-After publication, use `go install github.com/ViniTamanhao/graybox-core/cmd/graybox@v0.3.0`
-or its matching prebuilt binary. v0.2.3 predates the documented agent contract and
-stabilization fixes; do not use it to validate this candidate.
+Alternatively, download its [prebuilt binary](https://github.com/ViniTamanhao/graybox-core/releases/tag/v0.3.0).
+Use the skill from the matching v0.3.0 source tag. v0.2.3 predates the
+agent-verification contract and stabilization fixes.
 
 Put Go's binary directory on PATH and verify `graybox version --json`. Record the
 source revision for a `dev` version. The skill has no AI service dependency;
@@ -30,19 +28,17 @@ using Codex itself requires your normal Codex installation/authentication.
 
 ## 2. Install only the skill into your application
 
-From your application's repository root, with `graybox_source` pointing to a
-reviewed Graybox candidate checkout, copy just the package. After publication,
-obtain that checkout from the matching tag, not moving `main`:
+Obtain the skill from the published v0.3.0 tag, rather than the moving `main`
+branch. Run this from any directory:
 
 ```bash
-# Run only after v0.3.0 publication.
 umask 077
 skill_source_root="$(mktemp -d /tmp/graybox-skill.XXXXXXXXXX)" || exit 1
 graybox_source="$skill_source_root/source"
 git clone --branch v0.3.0 --depth 1 https://github.com/ViniTamanhao/graybox-core.git "$graybox_source"
 ```
 
-In your application's repository (for example `cd ~/src/my-api`):
+Then change to your application's repository (for example `cd ~/src/my-api`):
 
 ```bash
 mkdir -p .agents/skills
@@ -50,7 +46,8 @@ test ! -e .agents/skills/graybox || { printf 'Review existing skill before updat
 cp -R "$graybox_source/skills/graybox" .agents/skills/graybox
 ```
 
-The application needs only this small directory, not the Graybox source tree or
+After copying, you can remove the temporary checkout. The application needs
+only this small directory, not the Graybox source tree or
 its development `agents/` instructions. Teams can check in the skill package.
 Launch Codex from the application repository and confirm `graybox` appears in
 `/skills` (or type `$`). Restart if discovery has not refreshed. Ask an ordinary
