@@ -82,14 +82,16 @@ for the full walkthrough and authenticated replay.
 
 ## Installation
 
-The demo above uses the current development checkout. Published releases may
-lag behind it; see [release status](docs/installation.md#release-status).
-
-Building the current source requires Go 1.26.10 or newer:
+The demo above uses a source checkout. To install the released v0.3.0 CLI
+with Go 1.26.10 or newer:
 
 ```bash
-go install github.com/ViniTamanhao/graybox-core/cmd/graybox@latest
+go install github.com/ViniTamanhao/graybox-core/cmd/graybox@v0.3.0
+graybox version
 ```
+
+Prebuilt binaries do not require Go. See [installation](docs/installation.md)
+for downloads and checksum verification.
 
 To run the demo, clone the repository and use the local build shown above:
 
@@ -117,11 +119,11 @@ Run `graybox help <command>` for options.
 
 ## Use with Codex
 
-The upcoming v0.3.0 release pairs the CLI with a portable verification skill.
-Follow the [skill guide](docs/agent-skill.md) to copy the matching tagged package
-into your application's `.agents/skills/graybox`, then invoke `$graybox` in Codex.
-Before publication, use a reviewed candidate checkout. Installation does not
-guarantee automatic activation. The skill supplements tests with historical HTTP
+v0.3.0 includes a portable Codex verification skill alongside the CLI.
+Install the CLI and copy the matching [v0.3.0 skill package](docs/agent-skill.md)
+into your application's `.agents/skills/graybox`. Codex can discover the skill
+for relevant API changes, or you can invoke `$graybox` explicitly. Installation
+does not guarantee automatic activation. The skill supplements tests with historical HTTP
 evidence; the bounded experiments did not establish improved final correctness.
 
 ## OAuth bodies and project configuration
