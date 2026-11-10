@@ -16,8 +16,8 @@ Do not probe a suspicious destination to establish whether it is safe.
 Graybox automatically reuses only saved localhost/loopback targets. Redirects
 are not followed. Target paths are prepended to recorded paths. There is no
 rollback, state reset, idempotency-key generation, token refresh or stateful
-response-to-request correlation. Never automatically retry an ambiguous write: a failed request may already have
-changed state. Establish authorized resets and disposable state explicitly.
+response-to-request correlation. Never automatically retry an ambiguous write:
+a failed request may already have changed state. Establish authorized resets and disposable state explicitly.
 Inspect selection; repeat execution only when
 its effects are acceptable. Track the PID or tool session of each process you
 start and stop only that process; do not use broad name-based cleanup such as

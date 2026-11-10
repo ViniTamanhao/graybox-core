@@ -31,7 +31,8 @@ Do not install executables from untrusted sources.
    store stdout, stderr and exit status there. `diff` already replays; select only
    relevant exchanges and do not precede it with an unnecessary `replay`.
 5. Capture exit status, stdout and stderr separately when supported. If the
-   client cannot retain these reliably, report the missing evidence; never invent it. Parse JSON and require
+   client cannot retain these reliably, report the missing evidence; never invent
+   it. Parse JSON and require
    nonempty relevant results with consistent counts. Distinguish equivalent,
    changed, failed, command failure and unexecuted verification.
 6. Investigate unexpected differences by exchange and field. Fix actual
