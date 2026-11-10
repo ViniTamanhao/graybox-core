@@ -14,7 +14,7 @@ and [historical Codex evidence](agent-skill-evaluation.md).
 
 | Client | Project location | Personal location | Current package evidence |
 | --- | --- | --- | --- |
-| Codex | `.agents/skills/graybox` | `~/.agents/skills/graybox` | Structural checks; historical live validation separately documented |
+| Codex | `.agents/skills/graybox` | `~/.agents/skills/graybox` | Validated: fresh bounded CLI trials; see report |
 | Claude Code | `.claude/skills/graybox` | `~/.claude/skills/graybox` | Structurally compatible; live blocked |
 | Cursor | `.agents/skills/graybox` or `.cursor/skills/graybox` | `~/.agents/skills/graybox` or `~/.cursor/skills/graybox` | Structurally compatible; live blocked |
 | Copilot CLI / VS Code agent mode | `.agents/skills/graybox` or `.github/skills/graybox` | `~/.agents/skills/graybox` or `~/.copilot/skills/graybox` (surface dependent) | Structurally compatible; live blocked |

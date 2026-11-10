@@ -179,3 +179,10 @@ python3 evaluations/agent-skill/fixture.py check --binary /absolute/path/to/gray
 
 The same assertions run in a fresh external project. `--binary` also works with
 `prepare` for retaining a private synthetic workspace for manual inspection.
+
+Portability checks in `test_package.py` copy the canonical package into four
+client directory conventions outside the repository and check repeat-copy
+refusal. They establish packaging only. See the
+[portability report](../../docs/agent-skill-portability.md) for official sources,
+fresh Codex trials, execution configuration and blocked clients. Raw client
+traces and synthetic recordings stay private outside version control.

@@ -1,8 +1,10 @@
 """Validate a copied package without relying on the Graybox repository layout."""
 import json
+import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import tempfile
 import unittest
 
@@ -29,12 +31,10 @@ class PackageTests(unittest.TestCase):
 
     def test_portable_installations_refuse_overwrite(self):
         # Exercise the guide's POSIX copy command outside this repository.
-        import subprocess
         for location in (".agents/skills", ".claude/skills", ".cursor/skills", ".github/skills"):
             with self.subTest(location=location), tempfile.TemporaryDirectory() as directory:
                 destination = Path(directory) / location / "graybox"
                 command = 'mkdir -p "$skill_parent" && test ! -e "$skill_parent/graybox" && test ! -L "$skill_parent/graybox" && cp -R "$graybox_source/skills/graybox" "$skill_parent/graybox"'
-                import os
                 env = dict(os.environ, skill_parent=str(destination.parent), graybox_source=str(ROOT))
                 self.assertEqual(subprocess.run(["sh", "-c", command], env=env).returncode, 0)
                 before = {str(p.relative_to(destination)): p.read_bytes() for p in destination.rglob("*") if p.is_file()}
