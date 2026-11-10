@@ -54,6 +54,12 @@ Missing credentials are a blocker, not permission to guess. If this already
 prevents authorized comparison, record it as not executed; do not start a server
 solely to manufacture an additional failure reason.
 
+The following examples require a POSIX shell, `umask`, `mktemp` and a writable
+private temporary directory. On other platforms use equivalent native tooling
+with owner-only access, separate stdout/stderr and the actual process exit code.
+If the client cannot provide these, report that limitation. Resolve package
+references relative to this installed skill, not the application working directory.
+
 Use this capture pattern for each comparison, with `baseline`, `target` and
 `exchange_id` set to inspected values. Create the directory before redirection;
 `mkdir -p /tmp/fixed-name` is not a substitute for fresh private storage:

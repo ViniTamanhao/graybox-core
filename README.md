@@ -115,7 +115,7 @@ report `dev`; module installs and release binaries report their version.
 
 Run `graybox help <command>` for options.
 
-## Use with Codex
+## Coding agent integration
 
 v0.3.0 includes a portable Codex verification skill alongside the CLI.
 Install the CLI and copy the matching [v0.3.0 skill package](docs/agent-skill.md)
@@ -124,6 +124,10 @@ for relevant API changes, or you can invoke `$graybox` explicitly. Installation
 does not guarantee automatic activation. The skill supplements tests with
 historical HTTP evidence; bounded experiments did not establish improved final
 correctness.
+
+The unreleased [portable integration](docs/agent-skill.md) documents the same
+canonical package for Claude Code, Cursor and Copilot. Structural compatibility
+and live validation are reported separately; installation does not prove use.
 
 ## OAuth bodies and project configuration
 
@@ -167,7 +171,7 @@ are never written back into the recording. Read [Security](docs/SECURITY.md).
 - [Installation and release checks](docs/installation.md)
 - [Configuration](docs/configuration.md): redaction and runtime credentials
 - [Behavioral diffing](docs/diffing.md): comparisons, ignores, exit codes, JSON output
-- [Codex verification skill](docs/agent-skill.md): installation, safe use and evaluation evidence
+- [Agent verification skill](docs/agent-skill.md): installation, safe use and evaluation evidence
 - [Agent CLI failure-handling evaluation](docs/agent-cli-reliability.md)
 - [End-to-end agent development evaluation](docs/agent-end-to-end-evaluation.md)
 - [Agent verification contract](docs/agent-verification-contract.md) and [workflow](docs/agent-verification-workflow.md)

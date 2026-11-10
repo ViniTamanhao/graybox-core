@@ -9,7 +9,7 @@ Use Graybox when recorded HTTP evidence adds value to the requested coding task.
 It supplements normal tests. A difference is not automatically a defect.
 
 Prerequisites: a Graybox executable supporting `diff --json` and runtime secret
-headers (matching v0.3.0 release or reviewed release-candidate build), a trustworthy
+headers (v0.3.0 or a reviewed compatible source build), a trustworthy
 reference state or recording, and an independently verified, authorized replay
 environment. If these are
 missing, continue appropriate development/tests and report verification limits.
@@ -30,7 +30,8 @@ Do not install executables from untrusted sources.
    [capture pattern](references/verification.md#execute-safely-and-retain-channels);
    store stdout, stderr and exit status there. `diff` already replays; select only
    relevant exchanges and do not precede it with an unnecessary `replay`.
-5. Capture exit status, stdout and stderr separately. Parse JSON and require
+5. Capture exit status, stdout and stderr separately when supported. If the
+   client cannot retain these reliably, report the missing evidence; never invent it. Parse JSON and require
    nonempty relevant results with consistent counts. Distinguish equivalent,
    changed, failed, command failure and unexecuted verification.
 6. Investigate unexpected differences by exchange and field. Fix actual
