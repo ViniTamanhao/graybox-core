@@ -115,6 +115,15 @@ module installs and release binaries report their version.
 
 Run `graybox help <command>` for options.
 
+## Use with Codex
+
+The upcoming v0.3.0 release pairs the CLI with a portable verification skill.
+Follow the [skill guide](docs/agent-skill.md) to copy the matching tagged package
+into your application's `.agents/skills/graybox`, then invoke `$graybox` in Codex.
+Before publication, use a reviewed candidate checkout. Installation does not
+guarantee automatic activation. The skill supplements tests with historical HTTP
+evidence; the bounded experiments did not establish improved final correctness.
+
 ## OAuth bodies and project configuration
 
 Optional `graybox.yaml` rules extend default header redaction to custom headers,
@@ -146,7 +155,9 @@ header examples, validation, precedence, and supported formats.
 Graybox redacts `Authorization`, `Proxy-Authorization`, `Cookie`, and `Set-Cookie`
 headers during capture. Custom rules supplement these defaults. Unconfigured
 fields, unsupported bodies, and URL paths may still contain secrets;
-review recordings before sharing them. Replay and diff send real requests.
+review recordings before sharing them. Keep recordings and reports private and
+outside Git. Replay and diff send real requests and can repeat writes: use an
+authorized disposable environment with real integrations disabled.
 Use `--secret-header HEADER=ENV_VAR` to supply credentials at runtime; those values
 are never written back into the recording. Read [Security](docs/SECURITY.md).
 

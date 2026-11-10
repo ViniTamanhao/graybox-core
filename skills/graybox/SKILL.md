@@ -9,8 +9,9 @@ Use Graybox when recorded HTTP evidence adds value to the requested coding task.
 It supplements normal tests. A difference is not automatically a defect.
 
 Prerequisites: a Graybox executable supporting `diff --json` and runtime secret
-headers (Milestone 1 source contract), a trustworthy reference state or recording,
-and an independently verified, authorized replay environment. If these are
+headers (matching v0.3.0 release or reviewed release-candidate build), a trustworthy
+reference state or recording, and an independently verified, authorized replay
+environment. If these are
 missing, continue appropriate development/tests and report verification limits.
 Do not install executables from untrusted sources.
 

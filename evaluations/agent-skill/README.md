@@ -168,3 +168,14 @@ process ownership and absence of unauthorized retry. Mark unexecuted dimensions
 N/A or blocked, not pass. Retain trace/final/status privately and index hashes in
 [the reliability report](../../docs/agent-cli-reliability.md). A stopped target is
 not proof of general safe retry behavior under unrestricted authorization.
+
+
+For release verification, use an extracted native archive executable without
+rebuilding Graybox (the disposable example API still requires Go):
+
+```bash
+python3 evaluations/agent-skill/fixture.py check --binary /absolute/path/to/graybox
+```
+
+The same assertions run in a fresh external project. `--binary` also works with
+`prepare` for retaining a private synthetic workspace for manual inspection.

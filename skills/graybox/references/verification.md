@@ -2,7 +2,7 @@
 
 Inspect → verify baseline → check safety → change code → run tests → diff →
 interpret → report. Use the installed binary, not `go run`, for reliable process
-exit codes. Full maintained [contract](https://github.com/ViniTamanhao/graybox-core/blob/main/docs/agent-verification-contract.md).
+exit codes. Full maintained [contract](https://github.com/ViniTamanhao/graybox-core/blob/v0.3.0/docs/agent-verification-contract.md).
 
 ## Establish evidence before editing
 
@@ -48,7 +48,7 @@ if an earlier comparison was blocked or omitted, state that limitation.
 After safety review, supply the authorized full header through `API_AUTH` without
 printing it. `--secret-header Authorization=API_AUTH` reads that variable.
 For body/form/query mappings use supported `${ENV_VAR}` configuration references;
-see [configuration](https://github.com/ViniTamanhao/graybox-core/blob/main/docs/configuration.md).
+see [configuration](https://github.com/ViniTamanhao/graybox-core/blob/v0.3.0/docs/configuration.md).
 Configuration loads from CWD only or explicit `--config FILE`; inspect the policy.
 Missing credentials are a blocker, not permission to guess. If this already
 prevents authorized comparison, record it as not executed; do not start a server
