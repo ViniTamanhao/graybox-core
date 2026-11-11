@@ -1,6 +1,6 @@
 # Configurable redaction and runtime credentials
 
-Graybox v0.2.2 optionally reads `graybox.yaml` from the current working directory
+Graybox optionally reads `graybox.yaml` from the current working directory
 for `record`, `replay`, and `diff`. It does not search parent directories. Select
 another file with `--config FILE` on any of those commands; an explicit file must
 exist and replaces the discovered file entirely. No configuration is required.
@@ -224,7 +224,7 @@ response-to-request token extraction, vault, or OAuth orchestration.
 
 
 Recognizable exact `<REDACTED>` values remaining in supported JSON/form request
-fields or decoded query parameters after runtime replacement now fail that
+fields or decoded query parameters after runtime replacement fail that
 exchange before transmission. This also applies to legacy recordings without
 policy metadata and to naturally occurring literal markers. Configure every
 required replacement; partial replacement is not sufficient. The failure uses

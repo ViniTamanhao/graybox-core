@@ -8,7 +8,7 @@ written by the API, so replay is safe to repeat.
 The exercise captures the successful response, introduces a missing-discount
 bug, and uses Graybox to find the exact changed JSON field.
 
-Run all commands from the repository root. You need Go 1.26.10 or newer, curl,
+Run all commands from the repository root. You need Go 1.26.11 or newer, curl,
 and three terminals. Ports 8080 (API) and 9000 (recorder) must be free.
 
 ## 1. Start the API and recorder

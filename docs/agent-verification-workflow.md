@@ -167,4 +167,6 @@ Date/Content-Length ignores applied; credentials were redacted. This verifies
 only the selected response under that policy, not other endpoints or side effects.”
 Attach version/build and baseline provenance to that report in actual use. Never
 include secret values. This executed CLI example is not an experiment validating
-an autonomous coding-agent integration; reusable skill evaluation comes next.
+an autonomous coding-agent integration. See the separate
+[skill evaluations](agent-skill-evaluation.md) and
+[portability trials](agent-skill-portability.md) for that evidence.

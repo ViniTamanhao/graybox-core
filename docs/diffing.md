@@ -5,7 +5,7 @@
 ```text
 record
 → inspect
-→ fix
+→ change
 → diff
 → verify
 ```
@@ -266,8 +266,8 @@ Changed exact bodies use the size and SHA-256 snapshot shown above. Durations ar
 
 | Code | Meaning |
 | ---: | --- |
-| 0 | all selected exchanges are equivalent |
-| 1 | one or more behavioral changes were found |
+| 0 | all selected exchanges are equivalent, or selection is empty |
+| 1 | one or more behavioral changes were found, with no failed comparisons |
 | 2 | invalid or unsupported recording, or missing exchange |
 | 3 | one or more comparisons could not complete |
 | 4 | invalid CLI arguments or configuration |
