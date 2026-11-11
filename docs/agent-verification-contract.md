@@ -1,7 +1,7 @@
 # Agent verification contract
 
-This is the supported CLI contract for source builds containing v0.3 Milestone 1,
-not a claim that a published v0.3 release or an agent integration exists. Use
+This is the supported CLI contract shipped in v0.3.0 and retained for the planned
+v0.3.1 release. The separately installed skill guides use of this CLI. Use
 `graybox version --json` and record the source commit for a `dev` build.
 See the [workflow](agent-verification-workflow.md) for execution examples.
 

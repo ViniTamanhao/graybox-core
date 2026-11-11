@@ -8,6 +8,11 @@ and [release notes](releases/v0.3.0.md). It includes stabilization fixes and
 agent-verification milestones 1–4. The earlier proposed v0.2.4 was not
 published separately.
 
+**v0.3.1 is planned and not published.** It prepares documentation and the
+portable Agent Skills update; it introduces no CLI behavior or dependency change.
+Use v0.3.0 for installation today. See the [draft notes](releases/v0.3.1.md)
+and [post-publication commands](#planned-v031-installation).
+
 The `@latest` module version and GitHub Releases reflect published versions,
 which may differ from the development `main` branch. For historical pre-release
 verification details, see the [readiness audit](releases/v0.3.0-readiness.md).
@@ -140,3 +145,32 @@ copies and executes the supplied CLI without rebuilding it. All API commands run
 outside the checkout, with synthetic credentials and scoped process cleanup.
 It checks redaction, equivalent/change/restored comparisons and baseline integrity.
 The ordinary archive verifier works on Linux, macOS and Windows.
+
+## Planned v0.3.1 installation
+
+**Pending publication; do not run this versioned install yet.** Once a maintainer
+has published v0.3.1 and verified its module and artifacts, the pinned command is:
+
+```bash
+go install github.com/ViniTamanhao/graybox-core/cmd/graybox@v0.3.1
+graybox version --json
+```
+
+Expected after publication: `{"version":"v0.3.1"}`. Until then, use the v0.3.0
+commands above. No v0.3.1 download link is advertised as live here. Select the
+published release in [GitHub Releases](https://github.com/ViniTamanhao/graybox-core/releases)
+and verify SHA256SUMS before extracting. The planned archive names are
+`graybox_0.3.1_OS_ARCH.tar.gz` (Linux/macOS) and `.zip` (Windows), with the same
+six platform targets and checksum procedure described above.
+
+Install the portable skill separately from the **v0.3.1 source tag after it
+exists**, following the [skill guide](agent-skill.md#planned-v031-package).
+Before publication, the updated package requires a reviewed source commit; the
+published v0.3.0 tag does not contain that update. Release binaries and module
+installation do not install the instruction package.
+
+Maintainers must review green CI on the final main revision, run the packaging
+and extracted-binary checks above with v0.3.1, and separately authorize tagging.
+After publication, verify both module and native download installations, promote
+the v0.3.1 commands to the current instructions, and review generated release notes.
+The workflow generates notes automatically; it does not consume these Markdown notes.

@@ -8,7 +8,9 @@ baseline provenance, credentials or replay safety cannot be established.
 
 One canonical package under `skills/graybox` supplies workflow guidance; the CLI
 remains the execution engine and works independently of any agent. The portable
-update is unreleased; the v0.3.0 tagged package remains unchanged. See the
+update is planned for **v0.3.1, not yet published**; the v0.3.0 tagged Codex
+package remains unchanged. The client table below describes the updated package,
+not additional live validation of the v0.3.0 package. See the
 [portability report](agent-skill-portability.md) for sources and current checks,
 and [historical Codex evidence](agent-skill-evaluation.md).
 
@@ -32,7 +34,9 @@ go install github.com/ViniTamanhao/graybox-core/cmd/graybox@v0.3.0
 ```
 
 Alternatively, download its [prebuilt binary](https://github.com/ViniTamanhao/graybox-core/releases/tag/v0.3.0).
-Use the skill from the matching v0.3.0 source tag. v0.2.3 predates the
+The stable Codex instructions below use the matching v0.3.0 source tag. The
+updated portable package can also use this CLI: it requires no new executable
+features. v0.2.3 predates the
 agent-verification contract and stabilization fixes.
 
 Put Go's binary directory on PATH and verify `graybox version --json`. Record the
@@ -40,6 +44,8 @@ source revision for a `dev` version. The skill has no AI service dependency;
 using Codex itself requires your normal Codex installation/authentication.
 
 ## 2. Install only the skill into your application
+
+### Published v0.3.0 Codex package
 
 Obtain the skill from the published v0.3.0 tag, rather than the moving `main`
 branch. Run this from any directory:
@@ -59,11 +65,37 @@ test ! -e .agents/skills/graybox && test ! -L .agents/skills/graybox || { printf
 cp -R "$graybox_source/skills/graybox" .agents/skills/graybox
 ```
 
-For the **unreleased updated skill**, clone the source and check out a reviewed
-full commit SHA instead of the v0.3.0 tag; record `git rev-parse HEAD` and review
-local changes. Use that checkout as `graybox_source`. Do not label moving main
-as the stable package. For source development, install the CLI separately with
-`go install ./cmd/graybox` and record its source revision.
+### Updated portable package before publication
+
+For Claude Code, Cursor, Copilot, or the updated Codex instructions, obtain a
+reviewed full source commit instead of the v0.3.0 tag. In a fresh temporary
+checkout, these commands pin the merged portability work from PR #30:
+
+```bash
+umask 077
+skill_source_root="$(mktemp -d /tmp/graybox-skill.XXXXXXXXXX)" || exit 1
+graybox_source="$skill_source_root/source"
+git clone https://github.com/ViniTamanhao/graybox-core.git "$graybox_source"
+git -C "$graybox_source" checkout --detach f4412b330bc65a79798229a110257833002f13f4
+git -C "$graybox_source" rev-parse HEAD
+```
+
+Review the package at that revision, then use the guarded copy above with your
+client's directory below. This is an unreleased source package, not the stable
+v0.3.0 skill. The published v0.3.0 CLI supports its required commands. For source
+development, install the CLI separately with `go install ./cmd/graybox` from the
+reviewed checkout and record its source revision.
+
+### Planned v0.3.1 package
+
+**After v0.3.1 publication only**, use `--branch v0.3.1 --depth 1` in the stable
+clone command above, then copy the entire package to your chosen client directory.
+Install the matching v0.3.1 CLI using the
+[post-publication instructions](installation.md#planned-v031-installation).
+The tag and module do not exist yet; use the stable Codex package or reviewed
+portable source installation until then.
+
+### Copy and discover
 
 The commands use POSIX shell tools. Substitute `.claude/skills` for Claude Code,
 `.cursor/skills` for Cursor-only use, or `.github/skills` for Copilot-only use.
