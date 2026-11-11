@@ -9,7 +9,8 @@ agent-verification milestones 1–4. The earlier proposed v0.2.4 was not
 published separately.
 
 **v0.3.1 is planned and not published.** It prepares documentation and the
-portable Agent Skills update; it introduces no CLI behavior or dependency change.
+portable Agent Skills update. It also raises the minimum Go toolchain to 1.26.11
+to address GO-2026-6859; no CLI behavior or module dependency changes are included.
 Use v0.3.0 for installation today. See the [draft notes](releases/v0.3.1.md)
 and [post-publication commands](#planned-v031-installation).
 
@@ -19,7 +20,7 @@ verification details, see the [readiness audit](releases/v0.3.0-readiness.md).
 
 ## Source
 
-The module minimum is **Go 1.26.10**, as declared in go.mod. Use a patched
+The module minimum is **Go 1.26.11**, as declared in go.mod. Use a patched
 toolchain for source builds and `go install`: at least **Go 1.26.11** on the 1.26
 line or **Go 1.27.4** on the 1.27 line. The November 11, 2026
 [Go advisory GO-2026-6859](https://vuln.go.dev/ID/GO-2026-6859.json) affects older

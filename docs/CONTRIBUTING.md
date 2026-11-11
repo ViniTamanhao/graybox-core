@@ -3,7 +3,7 @@
 Graybox is intentionally a small API recorder and debugger. Focused issues and pull requests are welcome, especially for HTTP correctness, cross-platform behavior, tests, documentation, and the recording format.
 
 Read [AGENTS.md](../AGENTS.md) and the [development guides](../agents/README.md)
-before changes. Use Go **1.26.10 or newer** (go.mod is authoritative), TDD by
+before changes. Use Go **1.26.11 or newer** (go.mod is authoritative), TDD by
 default, progressive Conventional Commits and incremental documentation.
 
 ## Development setup
