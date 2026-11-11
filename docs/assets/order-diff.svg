@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="360" viewBox="0 0 760 360" role="img" aria-labelledby="title desc">
+  <title id="title">An order total changed from 4500 to 5000 cents</title>
+  <desc id="desc">Excerpt of actual Graybox diff output from the synthetic authenticated order API. GET /orders/42 changed at response.body#/total_cents: 4500 to 5000. Summary: 0 equivalent, 1 changed, 0 failed. The preserved baseline was not modified.</desc>
+  <rect x="1" y="1" width="758" height="358" rx="12" fill="#161b22" stroke="#57606a"/>
+  <g font-family="ui-monospace, SFMono-Regular, Consolas, Liberation Mono, monospace">
+  <text x="40" y="43" font-size="15" fill="#a8b3c2">GRAYBOX / OBSERVED HTTP BEHAVIOR</text>
+  <text x="40" y="82" font-size="22" fill="#ffffff">Record. Change. Compare.</text>
+  <path d="M40 102 H720" stroke="#3d444d"/>
+  <g font-size="20">
+  <text x="40" y="135" fill="#e6edf3" xml:space="preserve">1 GET /orders/42</text>
+  <text x="40" y="161" fill="#f2cc60" xml:space="preserve">  changed</text>
+  <text x="40" y="187" fill="#e6edf3" xml:space="preserve">  response.body#/total_cents</text>
+  <text x="40" y="213" fill="#f2cc60" xml:space="preserve">    4500 -&gt; 5000</text>
+  <text x="40" y="239" fill="#e6edf3" xml:space="preserve"></text>
+  <text x="40" y="265" fill="#e6edf3" xml:space="preserve">0 equivalent</text>
+  <text x="40" y="291" fill="#f2cc60" xml:space="preserve">1 changed</text>
+  <text x="40" y="317" fill="#e6edf3" xml:space="preserve">0 failed</text>
+  </g>
+  </g>
+</svg>
