@@ -60,7 +60,8 @@ suite contracts and useful failure evidence before adding infrastructure.
 Stateful replay, dynamic identifiers, environment-dependent values and safe
 side-effect handling; richer protocols and advanced workflows only with clear
 use cases. These are possibilities, not current guarantees or delivery dates.
-All version labels above are provisional and are not published releases.
+Future version labels are provisional. Completed work is described in the
+[published release notes](../docs/releases/v0.3.1.md).
 
 ## Non-goals
 
@@ -74,8 +75,8 @@ displace the free local CLI.
 
 Preserve one canonical Agent Skills package across Codex, Claude Code, Cursor
 and Copilot. The [portability report](../docs/agent-skill-portability.md) separates
-structural checks from live trials and unavailable clients. This is unreleased
-work, not a change to v0.3.0 historical evidence. Complete matched live adoption
+structural checks from live trials and unavailable clients. This work shipped
+in v0.3.1; v0.3.0 historical evidence remains unchanged. Complete matched live adoption
 trials before broadening runtime claims. An MCP adapter could later expose CLI
 operations, but needs separate authorization and credential design and is not
 required for skills.
