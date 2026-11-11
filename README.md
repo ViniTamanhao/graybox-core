@@ -38,22 +38,18 @@ recording and comparison policy; unrecorded behavior remains outside that claim.
 
 ## Get started
 
-Install the **published v0.3.0 CLI** with a [patched Go toolchain](docs/installation.md#source):
+Install the **published v0.3.1 CLI** with a [patched Go toolchain](docs/installation.md#source):
 
 ```bash
-go install github.com/ViniTamanhao/graybox-core/cmd/graybox@v0.3.0
+go install github.com/ViniTamanhao/graybox-core/cmd/graybox@v0.3.1
 graybox version
 ```
 
-Prefer a binary? [Download a release](https://github.com/ViniTamanhao/graybox-core/releases/tag/v0.3.0)
+Prefer a binary? [Download a release](https://github.com/ViniTamanhao/graybox-core/releases/tag/v0.3.1)
 for Linux, macOS or Windows. Follow the [checksum and PATH instructions](docs/installation.md#prebuilt-binaries).
 Prebuilt binaries need no Go installation.
 
-**Next: v0.3.1 (not published).** This branch prepares the README and portable
-Agent Skills update. Keep using the published command above today. The
-[post-publication instructions](docs/installation.md#planned-v031-installation)
-include the planned `@v0.3.1` install; its module and artifacts must exist first.
-See the [draft release notes](docs/releases/v0.3.1.md).
+See the [v0.3.1 release notes](docs/releases/v0.3.1.md).
 
 ## How it works
 
@@ -176,9 +172,9 @@ live validation is recorded for those clients. Installation does not guarantee
 automatic activation or improved coding correctness. See the
 [portability evidence](docs/agent-skill-portability.md).
 
-Install the executable and instruction package separately. The guide distinguishes
-the published v0.3.0 skill from the portable update planned for v0.3.1 and gives
-project-specific installation paths.
+v0.3.1 includes the portable skill package. Install the executable and instructions
+separately, using the matching v0.3.1 source tag and your client's
+[project-specific installation path](docs/agent-skill.md#2-install-only-the-skill-into-your-application).
 
 ## Documentation
 

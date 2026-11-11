@@ -2,21 +2,15 @@
 
 ## Release status
 
-**v0.3.0 was published November 10, 2026.** See the
-[GitHub release](https://github.com/ViniTamanhao/graybox-core/releases/tag/v0.3.0)
-and [release notes](releases/v0.3.0.md). It includes stabilization fixes and
-agent-verification milestones 1–4. The earlier proposed v0.2.4 was not
-published separately.
-
-**v0.3.1 is planned and not published.** It prepares documentation and the
-portable Agent Skills update. It also raises the minimum Go toolchain to 1.26.11
-to address GO-2026-6859; no CLI behavior or module dependency changes are included.
-Use v0.3.0 for installation today. See the [draft notes](releases/v0.3.1.md)
-and [post-publication commands](#planned-v031-installation).
+**v0.3.1 was published November 11, 2026.** See the
+[GitHub release](https://github.com/ViniTamanhao/graybox-core/releases/tag/v0.3.1)
+and [release notes](releases/v0.3.1.md). It includes the README refresh, portable
+Agent Skills guidance and checks, and the Go 1.26.11 toolchain security update.
+CLI behavior, module dependencies and schema-1 recordings are unchanged.
 
 The `@latest` module version and GitHub Releases reflect published versions,
 which may differ from the development `main` branch. For historical pre-release
-verification details, see the [readiness audit](releases/v0.3.0-readiness.md).
+verification details, see the [readiness audit](releases/v0.3.1-readiness.md).
 
 ## Source
 
@@ -42,14 +36,14 @@ A checkout build reports `graybox dev`. On Windows use `-o graybox.exe` and
 `.\graybox.exe`. For an installed released version:
 
 ```bash
-go install github.com/ViniTamanhao/graybox-core/cmd/graybox@v0.3.0
+go install github.com/ViniTamanhao/graybox-core/cmd/graybox@v0.3.1
 graybox version
 ```
 
 Use `@latest` to select the latest published module instead of a pinned version.
 A published module can have an older minimum Go requirement than current main.
-Module installs report their module version (for example `v0.3.0`); release builds
-embed the tag with `-ldflags="-X main.version=v0.3.0"`. Explicit build injection
+Module installs report their module version (for example `v0.3.1`); release builds
+embed the tag with `-ldflags="-X main.version=v0.3.1"`. Explicit build injection
 wins over module build info; unversioned checkout builds fall back to `dev`.
 
 Go installs into `go env GOBIN`, or `$(go env GOPATH)/bin` when GOBIN is empty.
@@ -66,13 +60,13 @@ The archive naming convention is `graybox_VERSION_OS_ARCH.tar.gz` on Unix and
 `.zip` on Windows, with VERSION excluding the leading `v`. Each contains one
 root-level executable, `graybox` or `graybox.exe`.
 
-Example for the published v0.3.0 Linux AMD64 artifact, in a new empty directory:
+Example for the published v0.3.1 Linux AMD64 artifact, in a new empty directory:
 
 ```bash
-curl -fLO https://github.com/ViniTamanhao/graybox-core/releases/download/v0.3.0/graybox_0.3.0_linux_amd64.tar.gz
-curl -fLO https://github.com/ViniTamanhao/graybox-core/releases/download/v0.3.0/SHA256SUMS
-grep '  graybox_0.3.0_linux_amd64.tar.gz$' SHA256SUMS | sha256sum --check -
-tar -xzf graybox_0.3.0_linux_amd64.tar.gz
+curl -fLO https://github.com/ViniTamanhao/graybox-core/releases/download/v0.3.1/graybox_0.3.1_linux_amd64.tar.gz
+curl -fLO https://github.com/ViniTamanhao/graybox-core/releases/download/v0.3.1/SHA256SUMS
+grep '  graybox_0.3.1_linux_amd64.tar.gz$' SHA256SUMS | sha256sum --check -
+tar -xzf graybox_0.3.1_linux_amd64.tar.gz
 chmod +x graybox
 ./graybox version
 ./graybox help diff
@@ -86,8 +80,8 @@ run `DESTINATION\graybox.exe version`. No chmod is needed on Windows. Binaries
 are not currently signed/notarized; checksum verification detects corruption,
 not compromise of the source of both archive and manifest.
 
-v0.3.0 includes the minimum Go 1.26.10 requirement and the stabilization fixes
-not present in v0.2.3. Prebuilt CLI binaries require no local Go installation.
+v0.3.1 release binaries were built with Go 1.26.11. This does not rebuild or
+remediate older release binaries. Prebuilt CLI binaries require no local Go installation.
 
 ## Maintainer packaging checks (no publishing)
 
@@ -121,29 +115,29 @@ a tag merely to test this workflow.
 
 ## Matching CLI and skill versions
 
-Install the matching v0.3.0 CLI:
+Install the matching v0.3.1 CLI:
 
 ```bash
-go install github.com/ViniTamanhao/graybox-core/cmd/graybox@v0.3.0
+go install github.com/ViniTamanhao/graybox-core/cmd/graybox@v0.3.1
 graybox version --json
 ```
 
-For prebuilt downloads, select the v0.3.0 archive for your platform. Expect `{"version":"v0.3.0"}`. The skill is distributed in the
+For prebuilt downloads, select the v0.3.1 archive for your platform. Expect `{"version":"v0.3.1"}`. The skill is distributed in the
 matching repository tag, separately from the six CLI archives. Follow the
 [external-project installation](agent-skill.md#2-install-only-the-skill-into-your-application).
 No separate skill archive or plugin installation is needed for this release.
 
-For maintainers: reproduce local v0.3.0 packaging checks from a tagged
-source checkout without publishing anything:
+For maintainers: check local packaging from a v0.3.1 source checkout without
+publishing or replacing release artifacts:
 
 ```bash
 umask 077
 release_root="$(mktemp -d /tmp/graybox-release.XXXXXXXXXX)" || exit 1
-bash scripts/package-release.sh v0.3.0 "$release_root/dist"
-python3 scripts/verify-release.py "$release_root/dist" v0.3.0
+bash scripts/package-release.sh v0.3.1 "$release_root/dist"
+python3 scripts/verify-release.py "$release_root/dist" v0.3.1
 # Linux AMD64 example; select your native archive on other hosts.
 mkdir "$release_root/native"
-tar -xzf "$release_root/dist/graybox_0.3.0_linux_amd64.tar.gz" -C "$release_root/native"
+tar -xzf "$release_root/dist/graybox_0.3.1_linux_amd64.tar.gz" -C "$release_root/native"
 python3 evaluations/agent-skill/fixture.py check --binary "$release_root/native/graybox"
 ```
 
@@ -152,32 +146,3 @@ copies and executes the supplied CLI without rebuilding it. All API commands run
 outside the checkout, with synthetic credentials and scoped process cleanup.
 It checks redaction, equivalent/change/restored comparisons and baseline integrity.
 The ordinary archive verifier works on Linux, macOS and Windows.
-
-## Planned v0.3.1 installation
-
-**Pending publication; do not run this versioned install yet.** Once a maintainer
-has published v0.3.1 and verified its module and artifacts, the pinned command is:
-
-```bash
-go install github.com/ViniTamanhao/graybox-core/cmd/graybox@v0.3.1
-graybox version --json
-```
-
-Expected after publication: `{"version":"v0.3.1"}`. Until then, use the v0.3.0
-commands above. No v0.3.1 download link is advertised as live here. Select the
-published release in [GitHub Releases](https://github.com/ViniTamanhao/graybox-core/releases)
-and verify SHA256SUMS before extracting. The planned archive names are
-`graybox_0.3.1_OS_ARCH.tar.gz` (Linux/macOS) and `.zip` (Windows), with the same
-six platform targets and checksum procedure described above.
-
-Install the portable skill separately from the **v0.3.1 source tag after it
-exists**, following the [skill guide](agent-skill.md#planned-v031-package).
-Before publication, the updated package requires a reviewed source commit; the
-published v0.3.0 tag does not contain that update. Release binaries and module
-installation do not install the instruction package.
-
-Maintainers must review green CI on the final main revision, run the packaging
-and extracted-binary checks above with v0.3.1, and separately authorize tagging.
-After publication, verify both module and native download installations, promote
-the v0.3.1 commands to the current instructions, and review generated release notes.
-The workflow generates notes automatically; it does not consume these Markdown notes.
