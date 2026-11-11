@@ -26,7 +26,9 @@ go run ./examples/server --regressed
 These are separate-terminal steps, not one script: stop the recorder before
 inspection, and stop the API before each restart. The verification harness built
 the same API into a temporary executable for precise process ownership; the
-example's `--regressed` flag changes behavior without changing source. A later
+example's `--regressed` flag changes behavior without changing source. A second
+run verified the literal `go run` walkthrough in a temporary source clone, with
+process-group cleanup. A later
 run without that flag restored equivalence. The exact diff command, default ports
 and output were executed; authenticated replay and JSON comparison also passed.
 Stored Authorization was redacted and the recording bytes stayed unchanged.

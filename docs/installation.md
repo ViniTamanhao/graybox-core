@@ -19,7 +19,13 @@ verification details, see the [readiness audit](releases/v0.3.0-readiness.md).
 
 ## Source
 
-The current main branch requires **Go 1.26.10 or newer**, as declared in go.mod.
+The module minimum is **Go 1.26.10**, as declared in go.mod. Use a patched
+toolchain for source builds and `go install`: at least **Go 1.26.11** on the 1.26
+line or **Go 1.27.4** on the 1.27 line. The November 11, 2026
+[Go advisory GO-2026-6859](https://vuln.go.dev/ID/GO-2026-6859.json) affects older
+standard-library versions. The module minimum does not select the newest patched
+toolchain automatically. Prebuilt artifacts retain the standard library used
+when they were built.
 Go may download the required toolchain automatically; set `GOTOOLCHAIN=local` if
 you want an older local toolchain to fail instead. CI reads the version directly
 from go.mod. No C compiler is needed for normal builds (SQLite is pure Go).

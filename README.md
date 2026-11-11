@@ -38,7 +38,7 @@ recording and comparison policy; unrecorded behavior remains outside that claim.
 
 ## Get started
 
-Install the **published v0.3.0 CLI** with Go 1.26.10 or newer:
+Install the **published v0.3.0 CLI** with a [patched Go toolchain](docs/installation.md#source):
 
 ```bash
 go install github.com/ViniTamanhao/graybox-core/cmd/graybox@v0.3.0
@@ -115,14 +115,18 @@ In terminal 2, start the recorder. Choose a fresh output filename; existing file
 are refused. Keep recordings outside version control.
 
 ```bash
-./graybox record --target http://127.0.0.1:8080 --output order.graybox
+./graybox record \
+  --target http://127.0.0.1:8080 \
+  --output order.graybox
 ```
 
 Wait for both startup messages. In terminal 3, send an authenticated request:
 
 ```bash
 export API_AUTH='Bearer demo-token'
-curl --fail-with-body http://127.0.0.1:9000/orders/42 -H "Authorization: $API_AUTH"
+curl --fail-with-body \
+  http://127.0.0.1:9000/orders/42 \
+  -H "Authorization: $API_AUTH"
 ```
 
 Check that `total_cents` is **4500**. Stop the recorder with Ctrl+C in terminal 2
@@ -147,7 +151,8 @@ The flag changes the running application's pricing behavior without editing sour
 **3. Compare and verify.** In terminal 3, supply the runtime credential and compare:
 
 ```bash
-./graybox diff order.graybox --secret-header Authorization=API_AUTH
+./graybox diff order.graybox \
+  --secret-header Authorization=API_AUTH
 ```
 
 The output shown above reports **4500 → 5000**, with exit **1**. Here the missing

@@ -31,3 +31,17 @@ No external server is required; integration tests use `httptest.Server` and temp
 Keep changes within Graybox's recorder/debugger scope. Prefer explicit standard-library code and small tests over speculative abstractions. If a change alters persisted data or JSON output, update the relevant documentation and add compatibility-focused tests.
 
 Before opening a pull request, run the [full verification commands](../agents/testing.md#verification), including formatting, module consistency, race tests and the configured vulnerability check. Review the complete diff; report actual results and environmental limits. Release changes also require the [packaging smoke checks](installation.md#maintainer-packaging-checks-no-publishing).
+
+## Documentation checks
+
+For public documentation changes, run:
+
+```bash
+python3 scripts/check-docs.py
+```
+
+This standard-library check validates local inline Markdown/HTML links and heading
+anchors, referenced SVG titles, code fences and Bash block syntax. It needs Bash
+and does not contact remote URLs or execute the examples. You can pass individual
+Markdown paths to narrow the check. Verify examples against real CLI output and
+review the rendered README separately, including narrow widths and both themes.

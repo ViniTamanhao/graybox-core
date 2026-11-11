@@ -52,6 +52,10 @@ jobs:
           go mod tidy
           git diff --exit-code -- go.mod go.sum
 
+      - name: Check documentation
+        if: runner.os == 'Linux'
+        run: python3 scripts/check-docs.py
+
       - name: Test
         run: go test ./...
 
